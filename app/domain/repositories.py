@@ -234,4 +234,11 @@ class MediaRepositoryMapRepository:
         )
         await self.session.execute(stmt)
 
+    async def list_by_category(self, category_id: int) -> Sequence[MediaRepositoryMap]:
+        stmt = select(MediaRepositoryMap).where(
+            MediaRepositoryMap.category_id == category_id, MediaRepositoryMap.active.is_(True)
+        )
+        result = await self.session.scalars(stmt)
+        return result.all()
+
 

@@ -8,8 +8,8 @@ from telegram.error import BadRequest
 
 from app.core.config import get_settings
 from app.core.exceptions import AlreadyExistsError, NotFoundError
-from app.domain.repositories import CategoryRepository
-from app.domain.services import CategoryService
+from app.domain.repositories import CategoryRepository, MediaRepositoryMapRepository
+from app.domain.services import CategoryService, MediaRepositoryService
 from app.infrastructure.db.base import get_session
 
 MENU_PREFIX: Final = "menu:"
@@ -20,6 +20,7 @@ def _build_main_menu() -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton("Adicione-me a um grupo", callback_data=f"{MENU_PREFIX}add_to_group")],
         [InlineKeyboardButton("Criar categoria (/setcategoria)", callback_data=f"{MENU_PREFIX}setcategoria")],
+        [InlineKeyboardButton("Visão de categorias", callback_data=f"{MENU_PREFIX}viewcats")],
         [InlineKeyboardButton("Adicionar copy (/addcopy)", callback_data=f"{MENU_PREFIX}addcopy")],
         [InlineKeyboardButton("Adicionar botão (/setbotao)", callback_data=f"{MENU_PREFIX}setbotao")],
         [InlineKeyboardButton("Configurar repositório (/setrepositorio)", callback_data=f"{MENU_PREFIX}setrepos")],
@@ -54,6 +55,102 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             await query.answer("Acesso restrito a administradores.", show_alert=True)
             return
         context.user_data[STATE_KEY] = {"action": "setcategoria"}
+
+    if action == "back":
+        context.user_data.pop(STATE_KEY, None)
+        await query.edit_message_text(
+            "Menu principal. Escolha uma das opções abaixo.",
+            reply_markup=_build_main_menu(),
+        )
+        return
+
+    if action == "viewcats":
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            categories = await service.list_categories()
+        if not categories:
+            await query.edit_message_text(
+                "Nenhuma categoria cadastrada ainda.",
+                reply_markup=_build_main_menu(),
+            )
+            return
+        rows = []
+        for idx in range(0, len(categories), 2):
+            row = categories[idx : idx + 2]
+            rows.append(
+                [
+                    InlineKeyboardButton(cat.name, callback_data=f"{MENU_PREFIX}viewcats:{cat.id}")
+                    for cat in row
+                ]
+            )
+        rows.append([InlineKeyboardButton("⬅️ Voltar", callback_data=f"{MENU_PREFIX}back")])
+        await query.edit_message_text(
+            "Selecione a categoria para visualizar detalhes:",
+            reply_markup=InlineKeyboardMarkup(rows),
+        )
+        return
+
+    if action.startswith("viewcats:"):
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
+        async with get_session() as session:
+            category_service = CategoryService(CategoryRepository(session))
+            repo_service = MediaRepositoryService(MediaRepositoryMapRepository(session), CategoryRepository(session))
+            try:
+                category = await category_service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.edit_message_text(
+                    "Categoria não encontrada.",
+                    reply_markup=_build_main_menu(),
+                )
+                return
+            repositories = await repo_service.list_by_category(category_id)
+        copy_count = len(category.copies or [])
+        button_count = len(category.buttons or [])
+        media_count = len(category.media_items or [])
+        copies_preview = ""
+        for entry in (category.copies or [])[:3]:
+            snippet = entry.text[:120].replace("`", "´")
+            copies_preview += f"\n  • {snippet}"
+            if len(entry.text) > 120:
+                copies_preview += "..."
+        if not copies_preview:
+            copies_preview = "\n  • Nenhuma copy cadastrada"
+        buttons_preview = ""
+        for entry in (category.buttons or [])[:3]:
+            buttons_preview += f"\n  • {entry.label} → {entry.url}"
+        if not buttons_preview:
+            buttons_preview = "\n  • Nenhum botão cadastrado"
+        repo_preview = ""
+        if repositories:
+            for repo in repositories[:5]:
+                repo_preview += f"\n  • Chat ID: `{repo.chat_id}`"
+            if len(repositories) > 5:
+                repo_preview += f"\n  • ... +{len(repositories)-5} outros"
+        else:
+            repo_preview = "\n  • Nenhum repositório ativo"
+        detail_message = (
+            f"*{category.name}* (`{category.slug}`)\n"
+            f"- Mídias cadastradas: {media_count}\n"
+            f"- Copies: {copy_count}{copies_preview}\n"
+            f"- Botões: {button_count}{buttons_preview}\n"
+            f"- Repositórios:{repo_preview}\n"
+        )
+        keyboard = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("⬅️ Voltar às categorias", callback_data=f"{MENU_PREFIX}viewcats")],
+                [InlineKeyboardButton("🏠 Menu principal", callback_data=f"{MENU_PREFIX}back")],
+            ]
+        )
+        await query.edit_message_text(
+            detail_message,
+            reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
+        return
 
     if action == "addcopy":
         async with get_session() as session:
@@ -116,6 +213,66 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         return
 
+    if action == "setbotao":
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            categories = await service.list_categories()
+        if not categories:
+            await query.edit_message_text(
+                "Nenhuma categoria encontrada. Crie uma categoria primeiro.",
+                reply_markup=_build_main_menu(),
+            )
+            return
+        rows = []
+        for idx in range(0, len(categories), 2):
+            row = categories[idx : idx + 2]
+            rows.append(
+                [
+                    InlineKeyboardButton(cat.name, callback_data=f"{MENU_PREFIX}setbotao:{cat.id}")
+                    for cat in row
+                ]
+            )
+        rows.append([InlineKeyboardButton("⬅️ Voltar", callback_data=f"{MENU_PREFIX}back")])
+        await query.edit_message_text(
+            "Selecione a categoria para adicionar um botão:",
+            reply_markup=InlineKeyboardMarkup(rows),
+        )
+        return
+
+    if action.startswith("setbotao:"):
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            try:
+                category = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.edit_message_text(
+                    "Categoria não encontrada.",
+                    reply_markup=_build_main_menu(),
+                )
+                return
+        if not _is_admin(update):
+            await query.edit_message_text(
+                "Apenas administradores podem adicionar botões.",
+                reply_markup=_build_main_menu(),
+            )
+            return
+        context.user_data[STATE_KEY] = {
+            "action": "setbotao_label",
+            "category_id": category.id,
+            "category_slug": category.slug,
+            "category_name": category.name,
+        }
+        await query.edit_message_text(
+            f"Categoria selecionada: {category.name}.\n"
+            "Envie o texto do botão (label) nesta conversa.",
+        )
+        return
+
     responses = {
         "add_to_group": (
             "Abra o grupo ou canal e adicione o bot. Promova-o a administrador com permissão para enviar mensagens, mídias e botões.\n"
@@ -130,6 +287,9 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "Registra textos (copies) ligados à categoria.\n"
             "Exemplo: responda a uma mensagem de texto com `/addcopy coroas 3` para peso 3.\n"
             "Sem resposta, o texto pode ser passado após o slug."
+        ),
+        "viewcats": (
+            "Visualize todas as categorias, incluindo copies, botões e repositórios vinculados."
         ),
         "setbotao": (
             "Cria botões inline para a categoria.\n"
@@ -240,6 +400,49 @@ async def menu_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             await service.add_copy(category_id, text=copy_text, weight=weight)
         await chat.send_message(
             f"Copy registrada para a categoria `{category_slug}` com peso {weight}.",
+            parse_mode="Markdown",
+            reply_markup=_build_main_menu(),
+        )
+        context.user_data.pop(STATE_KEY, None)
+    elif action == "setbotao_label":
+        if not _is_admin(update):
+            await chat.send_message("Apenas administradores podem adicionar botões.")
+            context.user_data.pop(STATE_KEY, None)
+            return
+        label = message.text.strip()
+        if not label:
+            await chat.send_message("Texto inválido. Envie novamente o nome do botão.")
+            return
+        pending["button_label"] = label
+        pending["action"] = "setbotao_url"
+        await chat.send_message("Agora envie a URL do botão (deve começar com http:// ou https://).")
+    elif action == "setbotao_url":
+        url = message.text.strip()
+        if not url.lower().startswith(("http://", "https://")):
+            await chat.send_message("URL inválida. Envie uma URL iniciando com http:// ou https://.")
+            return
+        pending["button_url"] = url
+        pending["action"] = "setbotao_weight"
+        await chat.send_message("Informe o peso do botão (número inteiro, padrão 1).")
+    elif action == "setbotao_weight":
+        weight_text = message.text.strip()
+        if not weight_text.isdigit():
+            await chat.send_message("Peso inválido. Envie um número inteiro maior que zero.")
+            return
+        weight = int(weight_text)
+        if weight <= 0:
+            await chat.send_message("Peso deve ser maior que zero.")
+            return
+        category_id = pending.get("category_id")
+        category_slug = pending.get("category_slug")
+        label = pending.get("button_label")
+        url = pending.get("button_url")
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            await service.add_button(category_id, label=label, url=url, weight=weight)
+        await chat.send_message(
+            f"Botão registrado para a categoria `{category_slug}`.\n"
+            f"Label: {label}\nURL: {url}\nPeso: {weight}",
             parse_mode="Markdown",
             reply_markup=_build_main_menu(),
         )

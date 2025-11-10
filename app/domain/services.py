@@ -189,3 +189,7 @@ class MediaRepositoryService:
         if not mapping:
             return None
         return models.MediaRepositoryDTO.model_validate(mapping)
+
+    async def list_by_category(self, category_id: int) -> list[models.MediaRepositoryDTO]:
+        mappings = await self.mapping_repo.list_by_category(category_id)
+        return [models.MediaRepositoryDTO.model_validate(item) for item in mappings]
