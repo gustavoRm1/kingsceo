@@ -97,7 +97,8 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         if current_text == message:
             await query.answer("Mensagem já exibida. Use o comando conforme orientação.", show_alert=False)
             return
-        await query.edit_message_text(text=message, reply_markup=_build_main_menu())
+        reply_markup = None if action == "setcategoria" else _build_main_menu()
+        await query.edit_message_text(text=message, reply_markup=reply_markup)
     except BadRequest as exc:  # pragma: no cover - cenário interativo
         if "Message is not modified" in str(exc):
             await query.answer("Mensagem já exibida. Use o comando conforme orientação.", show_alert=False)

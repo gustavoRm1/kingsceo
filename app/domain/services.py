@@ -15,7 +15,8 @@ class CategoryService:
 
     async def create_category(self, name: str) -> models.CategoryDTO:
         category = await self.repo.create(name=name)
-        return models.CategoryDTO.model_validate(category)
+        category_full = await self.repo.get_by_id(category.id)
+        return models.CategoryDTO.model_validate(category_full)
 
     async def get_category_by_slug(self, slug: str) -> models.CategoryDTO:
         category = await self.repo.get_by_slug(slug)
