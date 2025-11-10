@@ -4,6 +4,7 @@ from typing import Final
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, filters
+from telegram.error import BadRequest
 
 MENU_PREFIX: Final = "menu:"
 
@@ -43,38 +44,48 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     responses = {
         "add_to_group": (
-            "Abra o grupo ou canal no Telegram, adicione o bot e promova-o a administrador com permissão para enviar mensagens, "
-            "mídias e botões. Somente assim as publicações automáticas funcionarão."
+            "Abra o grupo ou canal e adicione o bot. Promova-o a administrador com permissão para enviar mensagens, mídias e botões.\n"
+            "Sem essas permissões, os envios automáticos não funcionarão."
         ),
         "setcategoria": (
-            "Cria uma categoria e define o slug usado nos demais comandos.\n"
+            "Cria uma categoria e o slug usado pelos demais comandos.\n"
             "Exemplo: `/setcategoria Coroas`\n"
-            "O bot responderá com `slug=coroas`, que deve ser usado nos próximos passos."
+            "Resposta esperada: `slug=coroas`. Anote para usar nos próximos comandos."
         ),
         "addmidia": (
-            "Associa mídias a uma categoria especificada pelo slug. Tipos aceitos: photo, video, document, animation.\n"
-            "Exemplo: responda a uma foto e envie `/addmidia coroas photo 2` para cadastrar com peso 2.\n"
-            "Quando peso não é informado, assume 1."
+            "Associa mídias a uma categoria.\n"
+            "1. Responda à mídia desejada ou envie a mídia junto com o comando.\n"
+            "2. Execute, por exemplo: `/addmidia coroas photo 2`\n"
+            "Tipos: photo, video, document, animation. Peso opcional (padrão 1)."
         ),
         "addcopy": (
-            "Armazena textos que serão enviados de forma aleatória junto das mídias.\n"
-            "Exemplo: `/addcopy coroas 3 Parágrafo da copy...` ou responda a uma mensagem de texto com `/addcopy coroas`.\n"
-            "O peso (opcional) aumenta a chance de seleção."
+            "Registra textos (copies) ligados à categoria.\n"
+            "Exemplo: responda a uma mensagem de texto com `/addcopy coroas 3` para peso 3.\n"
+            "Sem resposta, o texto pode ser passado após o slug."
         ),
         "setbotao": (
-            "Registra botões inline para a categoria.\n"
-            "Exemplo: `/setbotao coroas \"Assinar agora\" https://exemplo.com 2`\n"
-            "Lembre-se de incluir uma URL completa (http/https). Peso opcional."
+            "Cria botões inline para a categoria.\n"
+            "Exemplo: `/setbotao coroas \"Assinar\" https://exemplo.com 2`\n"
+            "A URL deve começar com http:// ou https://. Peso opcional."
         ),
         "setboasvindas": (
-            "Configura a mensagem de boas-vindas dos grupos/canais vinculados à categoria. Responda ao conteúdo desejado e use:\n"
-            "`/setboasvindas coroas mode=all`\n"
-            "Modos disponíveis: all, text, media, buttons, none."
+            "Define a mensagem de boas-vindas para grupos/canais associados.\n"
+            "Responda ao conteúdo desejado (texto/mídia/botões) e envie `/setboasvindas coroas mode=all`.\n"
+            "Modos: all, text, media, buttons, none."
         ),
     }
 
     message = responses.get(action, "Escolha uma opção do menu.")
-    await query.edit_message_text(text=message, reply_markup=_build_main_menu())
+    try:
+        if query.message and query.message.text == message:
+            await query.answer("Mensagem já exibida. Use o comando conforme orientação.", show_alert=False)
+            return
+        await query.edit_message_text(text=message, reply_markup=_build_main_menu())
+    except BadRequest as exc:  # pragma: no cover - cenário interativo
+        if "Message is not modified" in str(exc):
+            await query.answer("Mensagem já exibida. Use o comando conforme orientação.", show_alert=False)
+        else:
+            raise
 
 
 def register_menu_handlers(application: Application) -> None:
