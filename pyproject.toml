@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Multi-bot Telegram orchestration platform"
 authors = ["Kings CEO Team <dev@kingsceo.com>"]
 license = "Proprietary"
+packages = [{ include = "app" }]
 
 [tool.poetry.dependencies]
 python = "^3.11"
