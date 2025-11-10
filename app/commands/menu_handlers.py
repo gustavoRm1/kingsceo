@@ -8,6 +8,7 @@ from telegram.error import BadRequest
 
 from app.core.config import get_settings
 from app.core.exceptions import AlreadyExistsError, NotFoundError
+from app.core.utils import weighted_choice
 from app.domain.repositories import CategoryRepository, MediaRepositoryMapRepository
 from app.domain.services import CategoryService, MediaRepositoryService
 from app.infrastructure.db.base import get_session
@@ -141,6 +142,8 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         keyboard = InlineKeyboardMarkup(
             [
+                [InlineKeyboardButton("🎲 Copy aleatória", callback_data=f"{MENU_PREFIX}randcopy:{category.id}")],
+                [InlineKeyboardButton("🎲 Mídia aleatória", callback_data=f"{MENU_PREFIX}randmedia:{category.id}")],
                 [InlineKeyboardButton("⬅️ Voltar às categorias", callback_data=f"{MENU_PREFIX}viewcats")],
                 [InlineKeyboardButton("🏠 Menu principal", callback_data=f"{MENU_PREFIX}back")],
             ]
@@ -148,6 +151,65 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await query.edit_message_text(
             detail_message,
             reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
+        return
+    if action.startswith("randcopy:"):
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            try:
+                category = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.answer("Categoria não encontrada.", show_alert=True)
+                return
+        copies = list(category.copies or [])
+        if not copies:
+            await query.answer("Nenhuma copy cadastrada.", show_alert=True)
+            return
+        if len(copies) == 1:
+            await query.message.reply_text(
+                "Existe apenas uma copy cadastrada. Ela será usada sempre que necessário:\n\n"
+                f"{copies[0].text}"
+            )
+            return
+        chosen = weighted_choice([(c, c.weight or 1) for c in copies])
+        chosen_text = chosen.text if chosen else copies[0].text
+        await query.message.reply_text(
+            "Copy aleatória selecionada (considerando pesos configurados):\n\n"
+            f"{chosen_text}"
+        )
+        return
+
+    if action.startswith("randmedia:"):
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            try:
+                category = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.answer("Categoria não encontrada.", show_alert=True)
+                return
+        medias = list(category.media_items or [])
+        if not medias:
+            await query.answer("Nenhuma mídia cadastrada.", show_alert=True)
+            return
+        chosen = weighted_choice([(m, m.weight or 1) for m in medias])
+        chosen = chosen or medias[0]
+        caption = chosen.caption or "(sem legenda)"
+        await query.message.reply_text(
+            "Mídia aleatória selecionada (considerando pesos configurados):\n\n"
+            f"Tipo: {chosen.media_type}\n"
+            f"Legenda: {caption}\n"
+            f"file_id: `{chosen.file_id}`",
             parse_mode="Markdown",
         )
         return
