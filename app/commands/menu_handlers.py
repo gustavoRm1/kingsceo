@@ -7,10 +7,10 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 from telegram.error import BadRequest
 
 from app.core.config import get_settings
-from app.core.exceptions import AlreadyExistsError
-from app.infrastructure.db.base import get_session
+from app.core.exceptions import AlreadyExistsError, NotFoundError
 from app.domain.repositories import CategoryRepository
 from app.domain.services import CategoryService
+from app.infrastructure.db.base import get_session
 
 MENU_PREFIX: Final = "menu:"
 STATE_KEY: Final = "menu_pending"
@@ -54,6 +54,67 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             await query.answer("Acesso restrito a administradores.", show_alert=True)
             return
         context.user_data[STATE_KEY] = {"action": "setcategoria"}
+
+    if action == "addcopy":
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            categories = await service.list_categories()
+        if not categories:
+            await query.edit_message_text(
+                "Nenhuma categoria encontrada. Crie uma categoria primeiro.",
+                reply_markup=_build_main_menu(),
+            )
+            return
+        rows = []
+        for idx in range(0, len(categories), 2):
+            row = categories[idx : idx + 2]
+            rows.append(
+                [
+                    InlineKeyboardButton(cat.name, callback_data=f"{MENU_PREFIX}addcopy:{cat.id}")
+                    for cat in row
+                ]
+            )
+        keyboard = InlineKeyboardMarkup(rows)
+        await query.edit_message_text(
+            "Selecione a categoria para adicionar a copy:",
+            reply_markup=keyboard,
+        )
+        return
+
+    if action.startswith("addcopy:"):
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            try:
+                category = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.edit_message_text(
+                    "Categoria não encontrada. Tente novamente.",
+                    reply_markup=_build_main_menu(),
+                )
+                return
+        if not _is_admin(update):
+            await query.edit_message_text(
+                "Apenas administradores podem registrar copies.",
+                reply_markup=_build_main_menu(),
+            )
+            return
+        context.user_data[STATE_KEY] = {
+            "action": "addcopy",
+            "category_id": category.id,
+            "category_slug": category.slug,
+            "category_name": category.name,
+        }
+        await query.edit_message_text(
+            f"Categoria selecionada: {category.name}.\n"
+            "Envie o texto da copy nesta conversa.\n"
+            "Opcionalmente, defina peso usando `texto || peso` (ex.: `Oferta VIP || 3`).",
+        )
+        return
 
     responses = {
         "add_to_group": (
@@ -145,6 +206,43 @@ async def menu_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     parse_mode="Markdown",
                     reply_markup=_build_main_menu(),
                 )
+        context.user_data.pop(STATE_KEY, None)
+    elif action == "addcopy":
+        if not _is_admin(update):
+            await chat.send_message("Apenas administradores podem adicionar copies.")
+            context.user_data.pop(STATE_KEY, None)
+            return
+        text_raw = message.text.strip()
+        if not text_raw:
+            await chat.send_message("Texto inválido. Envie novamente.")
+            return
+        if "||" in text_raw:
+            text_part, weight_part = text_raw.split("||", 1)
+            copy_text = text_part.strip()
+            weight_part = weight_part.strip()
+            if not weight_part.isdigit():
+                await chat.send_message("Peso inválido. Use um número inteiro maior que zero (ex.: `Copy teste || 2`).")
+                return
+            weight = int(weight_part)
+            if weight <= 0:
+                await chat.send_message("Peso deve ser maior que zero.")
+                return
+        else:
+            copy_text = text_raw
+            weight = 1
+        if not copy_text:
+            await chat.send_message("Texto inválido. Envie novamente.")
+            return
+        category_id = pending.get("category_id")
+        category_slug = pending.get("category_slug")
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            await service.add_copy(category_id, text=copy_text, weight=weight)
+        await chat.send_message(
+            f"Copy registrada para a categoria `{category_slug}` com peso {weight}.",
+            parse_mode="Markdown",
+            reply_markup=_build_main_menu(),
+        )
         context.user_data.pop(STATE_KEY, None)
 
 

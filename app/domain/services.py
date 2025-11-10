@@ -18,6 +18,10 @@ class CategoryService:
         category_full = await self.repo.get_by_id(category.id)
         return models.CategoryDTO.model_validate(category_full)
 
+    async def list_categories(self) -> list[models.CategoryDTO]:
+        categories = await self.repo.list()
+        return [models.CategoryDTO.model_validate(cat) for cat in categories]
+
     async def get_category_by_slug(self, slug: str) -> models.CategoryDTO:
         category = await self.repo.get_by_slug(slug)
         return models.CategoryDTO.model_validate(category)
