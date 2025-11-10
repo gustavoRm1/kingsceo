@@ -20,7 +20,7 @@ def build_engine(overrides: dict | None = None) -> AsyncEngine:
     connect_args: dict[str, object] = {}
 
     config = {
-        "sqlalchemy.url": settings.database_url,
+        "sqlalchemy.url": str(settings.database_url),
         "sqlalchemy.echo": settings.is_dev,
         "sqlalchemy.pool_pre_ping": True,
         "sqlalchemy.pool_size": 5,
