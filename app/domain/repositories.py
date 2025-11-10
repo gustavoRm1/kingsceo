@@ -27,10 +27,13 @@ class CategoryRepository:
         stmt = select(Category).options(
             selectinload(Category.media_items),
             selectinload(Category.copies),
-            selectinload(Category.buttons).order_by(Button.weight, Button.id),
+            selectinload(Category.buttons),
         )
         result = await self.session.scalars(stmt)
-        return result.all()
+        categories = result.unique().all()
+        for category in categories:
+            category.buttons.sort(key=lambda b: (b.weight or 0, b.id))
+        return categories
 
     async def get_by_slug(self, slug: str) -> Category:
         stmt = (
@@ -39,12 +42,13 @@ class CategoryRepository:
             .options(
                 selectinload(Category.media_items),
                 selectinload(Category.copies),
-                selectinload(Category.buttons).order_by(Button.weight, Button.id),
+                selectinload(Category.buttons),
             )
         )
         category = await self.session.scalar(stmt)
         if not category:
             raise NotFoundError(f"Category {slug!r} not found.")
+        category.buttons.sort(key=lambda b: (b.weight or 0, b.id))
         return category
 
     async def get_by_id(self, category_id: int) -> Category:
@@ -54,12 +58,13 @@ class CategoryRepository:
             .options(
                 selectinload(Category.media_items),
                 selectinload(Category.copies),
-                selectinload(Category.buttons).order_by(Button.weight, Button.id),
+                selectinload(Category.buttons),
             )
         )
         category = await self.session.scalar(stmt)
         if not category:
             raise NotFoundError(f"Category id {category_id} not found.")
+        category.buttons.sort(key=lambda b: (b.weight or 0, b.id))
         return category
 
     async def create(self, name: str) -> Category:
