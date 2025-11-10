@@ -35,6 +35,42 @@ Sistema multi-bot para Telegram com gerenciamento de categorias, conteudos e fai
 - `scripts`: bootstrap de dados e migracoes legadas
 - `docker`: arquivos para containerizacao
 
+## Comandos do bot
+
+Todos os comandos administrativos devem ser executados em um chat privado com o bot e pelo menos um ID presente em `ADMIN_IDS`. O bot tambem pode ser controlado por um menu interativo: qualquer usuario pode enviar `/start` para exibir botoes como **Adicione-me a um grupo**, **Grupo** e **Canal**.
+
+- `/start`  
+  Exibe o menu interativo. Util para orientar usuarios e acessar explicacoes rapidas.
+
+- `/setcategoria Nome da Categoria`  
+  Cria uma categoria e gera um *slug* unico (usado nos demais comandos). Executar apenas uma vez por categoria.
+
+- `/addmidia <slug> <tipo> [peso]`  
+  Adiciona midia a uma categoria. Responda a mensagem que contem a midia ou envie a midia junto com o comando.  
+  Tipos aceitos: `photo`, `video`, `document`, `animation`. O `peso` (padrao 1) define probabilidade relativa nas selecoes aleatorias.
+
+- `/addcopy <slug> [peso]`  
+  Salva um texto associado a categoria. O texto e lido da mensagem respondida ou dos argumentos restantes. `peso` controla a chance de envio (padrao 1).
+
+- `/setbotao <slug> <label> <url> [peso]`  
+  Registra um botao inline com texto e link (URL obrigatoriamente `http://` ou `https://`). `peso` define probabilidade em envio aleatorio.
+
+- `/setboasvindas <slug> mode=<all|text|media|buttons|none>`  
+  Configura a mensagem de boas-vindas de grupos/canais ligados a categoria. Responda a mensagem contendo o conteudo desejado (texto, midia e/ou botoes). Modos:
+  - `all`: envia texto, midia e botoes quando disponiveis.
+  - `text`: apenas texto.
+  - `media`: apenas midia.
+  - `buttons`: apenas botoes inline.
+  - `none`: boas-vindas desativadas.
+
+### Fluxo basico de configuracao
+
+1. Execute `/setcategoria` para criar a categoria e anote o *slug* retornado.  
+2. Use `/addmidia`, `/addcopy` e `/setbotao` para popular os conteudos.  
+3. Configure as boas-vindas com `/setboasvindas`.  
+4. Adicione o bot aos grupos/canais desejados e garanta permissao de administrador.  
+5. Os envios aleatorios utilizarao o material cadastrado; falhas e failover sao informados ao admin via notificacoes e logs.
+
 ## Proximas etapas
 
 - Implementar modelos e migracoes do banco

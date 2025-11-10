@@ -11,11 +11,11 @@ MENU_PREFIX: Final = "menu:"
 def _build_main_menu() -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton("Adicione-me a um grupo", callback_data=f"{MENU_PREFIX}add_to_group")],
-        [InlineKeyboardButton("Grupo", callback_data=f"{MENU_PREFIX}group")],
-        [InlineKeyboardButton("Canal", callback_data=f"{MENU_PREFIX}channel")],
-        [InlineKeyboardButton("Suporte", callback_data=f"{MENU_PREFIX}support")],
-        [InlineKeyboardButton("Informações", callback_data=f"{MENU_PREFIX}info")],
-        [InlineKeyboardButton("Languages", callback_data=f"{MENU_PREFIX}languages")],
+        [InlineKeyboardButton("Criar categoria (/setcategoria)", callback_data=f"{MENU_PREFIX}setcategoria")],
+        [InlineKeyboardButton("Adicionar mídia (/addmidia)", callback_data=f"{MENU_PREFIX}addmidia")],
+        [InlineKeyboardButton("Adicionar copy (/addcopy)", callback_data=f"{MENU_PREFIX}addcopy")],
+        [InlineKeyboardButton("Adicionar botão (/setbotao)", callback_data=f"{MENU_PREFIX}setbotao")],
+        [InlineKeyboardButton("Configurar boas-vindas (/setboasvindas)", callback_data=f"{MENU_PREFIX}setboasvindas")],
     ]
     return InlineKeyboardMarkup(buttons)
 
@@ -42,12 +42,35 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     action = data.removeprefix(MENU_PREFIX)
 
     responses = {
-        "add_to_group": "Para me adicionar a um grupo, utilize o Telegram, adicione-me como admin e garanta permissões para enviar mensagens.",
-        "group": "Use /setcategoria, /addmidia, /addcopy e /setbotao para configurar suas categorias e envios para grupos.",
-        "channel": "Para canais, certifique-se de que o bot é administrador. Configure as categorias e associe-as ao canal desejado.",
-        "support": "Precisa de ajuda? Entre em contato com o suporte ou acione o administrador configurado.",
-        "info": "KingsCEO Bot permite gerenciar múltiplos bots, categorias e envios automáticos via PostgreSQL. Consulte o README para detalhes.",
-        "languages": "Em breve suporte multilíngue. Por enquanto, a interface está disponível em Português.",
+        "add_to_group": (
+            "Abra o grupo ou canal no Telegram, adicione o bot e promova-o a administrador com permissão para enviar mensagens, "
+            "mídias e botões. Somente assim as publicações automáticas funcionarão."
+        ),
+        "setcategoria": (
+            "Cria uma categoria e define o slug usado nos demais comandos.\n"
+            "Exemplo: `/setcategoria Coroas`\n"
+            "O bot responderá com `slug=coroas`, que deve ser usado nos próximos passos."
+        ),
+        "addmidia": (
+            "Associa mídias a uma categoria especificada pelo slug. Tipos aceitos: photo, video, document, animation.\n"
+            "Exemplo: responda a uma foto e envie `/addmidia coroas photo 2` para cadastrar com peso 2.\n"
+            "Quando peso não é informado, assume 1."
+        ),
+        "addcopy": (
+            "Armazena textos que serão enviados de forma aleatória junto das mídias.\n"
+            "Exemplo: `/addcopy coroas 3 Parágrafo da copy...` ou responda a uma mensagem de texto com `/addcopy coroas`.\n"
+            "O peso (opcional) aumenta a chance de seleção."
+        ),
+        "setbotao": (
+            "Registra botões inline para a categoria.\n"
+            "Exemplo: `/setbotao coroas \"Assinar agora\" https://exemplo.com 2`\n"
+            "Lembre-se de incluir uma URL completa (http/https). Peso opcional."
+        ),
+        "setboasvindas": (
+            "Configura a mensagem de boas-vindas dos grupos/canais vinculados à categoria. Responda ao conteúdo desejado e use:\n"
+            "`/setboasvindas coroas mode=all`\n"
+            "Modos disponíveis: all, text, media, buttons, none."
+        ),
     }
 
     message = responses.get(action, "Escolha uma opção do menu.")
