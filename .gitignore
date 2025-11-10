@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.env
+.venv
+venv/
+
+# Packaging
+build/
+dist/
+*.egg-info/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Poetry
+poetry.lock

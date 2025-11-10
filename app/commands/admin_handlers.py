@@ -1,0 +1,203 @@
+from __future__ import annotations
+
+import re
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.constants import ChatType
+from telegram.ext import Application, CommandHandler, ContextTypes, filters
+
+from app.core.config import get_settings
+from app.domain.repositories import CategoryRepository
+from app.domain.services import CategoryService
+from app.infrastructure.db.base import get_session
+
+
+def _is_admin(update: Update) -> bool:
+    settings = get_settings()
+    if not update.effective_user:
+        return False
+    return update.effective_user.id in settings.admin_ids
+
+
+def _private_or_admin(update: Update) -> bool:
+    chat = update.effective_chat
+    if not chat:
+        return False
+    return chat.type == ChatType.PRIVATE and _is_admin(update)
+
+
+async def _require_admin(update: Update) -> bool:
+    if not _is_admin(update):
+        if update.effective_chat and update.effective_chat.type == ChatType.PRIVATE:
+            await update.effective_chat.send_message("Acesso negado.")
+        return False
+    return True
+
+
+async def cmd_setcategoria(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    if not message:
+        return
+    if not await _require_admin(update):
+        return
+    if not context.args:
+        await message.reply_text("Uso: /setcategoria <nome>")
+        return
+    name = " ".join(context.args)
+    async with get_session() as session:
+        service = CategoryService(CategoryRepository(session))
+        category = await service.create_category(name)
+    await message.reply_text(f"Categoria criada: {category.name} (slug={category.slug})")
+
+
+async def _get_category_id(service: CategoryService, slug: str) -> int:
+    category = await service.get_category_by_slug(slug)
+    return category.id
+
+
+async def cmd_addmidia(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    if not message:
+        return
+    if not await _require_admin(update):
+        return
+    if len(context.args) < 2:
+        await message.reply_text("Uso: /addmidia <slug_categoria> <tipo: photo|video|document|animation> [peso]")
+        return
+    slug = context.args[0]
+    media_type = context.args[1]
+    weight = int(context.args[2]) if len(context.args) > 2 else 1
+    source = message.reply_to_message or message
+    file_id = None
+    caption = source.caption if source else None
+    if media_type == "photo" and source.photo:
+        file_id = source.photo[-1].file_id
+    elif media_type == "video" and source.video:
+        file_id = source.video.file_id
+    elif media_type == "document" and source.document:
+        file_id = source.document.file_id
+    elif media_type == "animation" and source.animation:
+        file_id = source.animation.file_id
+    if not file_id:
+        await message.reply_text("Envie ou responda a uma mensagem contendo a midia informada.")
+        return
+    async with get_session() as session:
+        service = CategoryService(CategoryRepository(session))
+        category_id = await _get_category_id(service, slug)
+        media = await service.add_media(
+            category_id,
+            media_type=media_type,
+            file_id=file_id,
+            caption=caption,
+            weight=weight,
+        )
+    await message.reply_text(f"Midia registrada para {slug}: {media.media_type}")
+
+
+async def cmd_addcopy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    if not message:
+        return
+    if not await _require_admin(update):
+        return
+    if not context.args:
+        await message.reply_text("Uso: /addcopy <slug_categoria> [peso]")
+        return
+    slug = context.args[0]
+    weight = int(context.args[1]) if len(context.args) > 1 else 1
+    text_source = (
+        message.reply_to_message.text
+        if message.reply_to_message
+        else " ".join(context.args[1:])
+    )
+    if not text_source:
+        await message.reply_text("Forneca o texto na mesma mensagem ou responda a um texto.")
+        return
+    async with get_session() as session:
+        service = CategoryService(CategoryRepository(session))
+        category_id = await _get_category_id(service, slug)
+        copy = await service.add_copy(category_id, text=text_source, weight=weight)
+    await message.reply_text(f"Copy adicionada para {slug} (id={copy.id}).")
+
+
+_URL_PATTERN = re.compile(r"^https?://")
+
+
+async def cmd_setbotao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    if not message:
+        return
+    if not await _require_admin(update):
+        return
+    if len(context.args) < 3:
+        await message.reply_text("Uso: /setbotao <slug_categoria> <label> <url> [peso]")
+        return
+    slug = context.args[0]
+    label = context.args[1]
+    url = context.args[2]
+    if not _URL_PATTERN.match(url):
+        await message.reply_text("URL invalida. Use http:// ou https://")
+        return
+    weight = int(context.args[3]) if len(context.args) > 3 else 1
+    async with get_session() as session:
+        service = CategoryService(CategoryRepository(session))
+        category_id = await _get_category_id(service, slug)
+        button = await service.add_button(category_id, label=label, url=url, weight=weight)
+    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(button.label, url=button.url)]])
+    await message.reply_text(
+        f"Botao adicionado para {slug} (id={button.id}).",
+        reply_markup=keyboard,
+    )
+
+
+async def cmd_setboasvindas(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    if not message:
+        return
+    if not await _require_admin(update):
+        return
+    if not context.args:
+        await message.reply_text("Uso: /setboasvindas <slug_categoria> mode=<all|text|media|buttons|none>")
+        return
+    slug = context.args[0]
+    mode = "all"
+    for arg in context.args[1:]:
+        if arg.startswith("mode="):
+            mode = arg.split("=", 1)[1]
+    source = message.reply_to_message or message
+    media_id = None
+    if source.photo:
+        media_id = source.photo[-1].file_id
+    elif source.video:
+        media_id = source.video.file_id
+    elif source.animation:
+        media_id = source.animation.file_id
+    text = source.text or source.caption
+    buttons = None
+    if source.reply_markup and source.reply_markup.inline_keyboard:
+        buttons = [
+            {"label": btn.text, "url": btn.url}
+            for row in source.reply_markup.inline_keyboard
+            for btn in row
+            if btn.url
+        ]
+    async with get_session() as session:
+        service = CategoryService(CategoryRepository(session))
+        category_id = await _get_category_id(service, slug)
+        await service.update_welcome(
+            category_id,
+            mode=mode,
+            text=text,
+            media_id=media_id,
+            buttons=buttons,
+        )
+    await message.reply_text(f"Boas-vindas configuradas para {slug} (modo={mode}).")
+
+
+def register_admin_handlers(application: Application) -> None:
+    application.add_handler(CommandHandler("setcategoria", cmd_setcategoria, filters=filters.ChatType.PRIVATE))
+    application.add_handler(CommandHandler("addmidia", cmd_addmidia, filters=filters.ChatType.PRIVATE))
+    application.add_handler(CommandHandler("addcopy", cmd_addcopy, filters=filters.ChatType.PRIVATE))
+    application.add_handler(CommandHandler("setbotao", cmd_setbotao, filters=filters.ChatType.PRIVATE))
+    application.add_handler(CommandHandler("setboasvindas", cmd_setboasvindas, filters=filters.ChatType.PRIVATE))
+
