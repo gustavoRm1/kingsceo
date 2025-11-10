@@ -9,6 +9,7 @@ from telegram.error import Forbidden
 from telegram.ext import Application
 
 from app.core.logging import get_logger
+from app.core.notifications import AdminNotifier
 from app.domain.models import Payload
 from app.domain.repositories import CategoryRepository, GroupRepository
 from app.domain.services import CategoryService, GroupService
@@ -18,9 +19,16 @@ logger = get_logger(__name__)
 
 
 class DispatchEngine:
-    def __init__(self, application: Application, *, admin_cache_ttl: int = 300) -> None:
+    def __init__(
+        self,
+        application: Application,
+        *,
+        admin_cache_ttl: int = 300,
+        notifier: AdminNotifier | None = None,
+    ) -> None:
         self.application = application
         self._admin_cache = TTLCache(maxsize=512, ttl=admin_cache_ttl)
+        self._notifier = notifier
 
     async def dispatch_category(
         self,
@@ -42,13 +50,17 @@ class DispatchEngine:
             )
             groups = await group_service.list_by_category(category.id)
 
-        await asyncio.gather(
-            *(
-                self._send_payload(group.telegram_chat_id, payload)
-                for group in groups
-            ),
+        results = await asyncio.gather(
+            *[self._send_payload(group.telegram_chat_id, payload) for group in groups],
             return_exceptions=True,
         )
+        for result in results:
+            if isinstance(result, Exception):
+                logger.error("dispatch.category_error", slug=slug, error=str(result))
+                if self._notifier and self._notifier.has_recipients():
+                    await self._notifier.send(
+                        f"Falha ao enviar categoria {slug}: {result}", level="ERROR"
+                    )
 
     async def _send_payload(self, chat_id: int, payload: Payload) -> None:
         if not await self._ensure_admin(chat_id):

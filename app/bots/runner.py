@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-
 import contextlib
 import signal
 
@@ -15,6 +14,7 @@ from app.commands.admin_handlers import register_admin_handlers
 from app.core.config import get_settings
 from app.core.exceptions import NotFoundError
 from app.core.logging import configure_logging, get_logger
+from app.core.notifications import AdminNotifier
 from app.domain.repositories import BotRepository
 from app.domain.services import BotService
 from app.infrastructure.db.base import get_session
@@ -54,7 +54,8 @@ async def run_bot(config: BotConfig) -> None:
     register_admin_handlers(application)
 
     monitor = HeartbeatMonitor(_heartbeat_callable)
-    supervisor = BotSupervisor()
+    notifier = AdminNotifier(application.bot, get_settings().admin_ids)
+    supervisor = BotSupervisor(notifier=notifier)
     stop_event = asyncio.Event()
 
     loop = asyncio.get_running_loop()

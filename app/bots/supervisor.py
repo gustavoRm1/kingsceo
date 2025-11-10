@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from app.core.logging import get_logger
+from app.core.notifications import AdminNotifier
 from app.domain.repositories import BotRepository, GroupRepository
 from app.domain.services import BotService, GroupService
 from app.infrastructure.db.base import get_session
@@ -21,9 +22,10 @@ class SupervisorConfig:
 
 
 class BotSupervisor:
-    def __init__(self, config: SupervisorConfig | None = None) -> None:
+    def __init__(self, config: SupervisorConfig | None = None, notifier: AdminNotifier | None = None) -> None:
         self.config = config or SupervisorConfig()
         self._task: asyncio.Task | None = None
+        self._notifier = notifier
 
     async def start(self) -> None:
         if self._task and not self._task.done():
@@ -98,6 +100,12 @@ class BotSupervisor:
                         from_bot=bot.name,
                         to_bot=replacement.name if replacement else None,
                     )
+                    if self._notifier and self._notifier.has_recipients():
+                        target = replacement.name if replacement else "nenhum bot disponível"
+                        await self._notifier.send(
+                            f"Failover: grupo {group.telegram_chat_id} transferido de {bot.name} para {target}",
+                            level="WARNING",
+                        )
 
     def _choose_replacement(self, bots, failed_bot_id: int):
         candidates = [bot for bot in bots if bot.id != failed_bot_id]
