@@ -45,10 +45,6 @@ Todos os comandos administrativos devem ser executados em um chat privado com o 
 - `/setcategoria Nome da Categoria`  
   Cria uma categoria e gera um *slug* unico (usado nos demais comandos). Executar apenas uma vez por categoria.
 
-- `/addmidia <slug> <tipo> [peso]`  
-  Adiciona midia a uma categoria. Responda a mensagem que contem a midia ou envie a midia junto com o comando.  
-  Tipos aceitos: `photo`, `video`, `document`, `animation`. O `peso` (padrao 1) define probabilidade relativa nas selecoes aleatorias.
-
 - `/addcopy <slug> [peso]`  
   Salva um texto associado a categoria. O texto e lido da mensagem respondida ou dos argumentos restantes. `peso` controla a chance de envio (padrao 1).
 
@@ -69,7 +65,7 @@ Todos os comandos administrativos devem ser executados em um chat privado com o 
 ### Fluxo basico de configuracao
 
 1. Execute `/setcategoria` para criar a categoria e anote o *slug* retornado.  
-2. Use `/addmidia`, `/addcopy` e `/setbotao` para popular os conteudos.  
+2. Use `/addcopy` e `/setbotao` para popular textos e botões (ou cadastre mídias via grupo repositório, conforme abaixo).  
 3. (Opcional) Converta um grupo em repositório executando `/setrepositorio <slug>` dentro dele; todas as mídias dos administradores serão importadas automaticamente.  
 4. Configure as boas-vindas com `/setboasvindas`.  
 5. Adicione o bot aos grupos/canais desejados e garanta permissao de administrador.  

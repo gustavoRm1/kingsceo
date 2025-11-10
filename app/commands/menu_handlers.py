@@ -20,7 +20,6 @@ def _build_main_menu() -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton("Adicione-me a um grupo", callback_data=f"{MENU_PREFIX}add_to_group")],
         [InlineKeyboardButton("Criar categoria (/setcategoria)", callback_data=f"{MENU_PREFIX}setcategoria")],
-        [InlineKeyboardButton("Adicionar mídia (/addmidia)", callback_data=f"{MENU_PREFIX}addmidia")],
         [InlineKeyboardButton("Adicionar copy (/addcopy)", callback_data=f"{MENU_PREFIX}addcopy")],
         [InlineKeyboardButton("Adicionar botão (/setbotao)", callback_data=f"{MENU_PREFIX}setbotao")],
         [InlineKeyboardButton("Configurar repositório (/setrepositorio)", callback_data=f"{MENU_PREFIX}setrepos")],
@@ -65,12 +64,6 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "Cria uma categoria e o slug usado pelos demais comandos.\n"
             "Exemplo: `/setcategoria Coroas`\n"
             "Resposta esperada: `slug=coroas`. Anote para usar nos próximos comandos."
-        ),
-        "addmidia": (
-            "Associa mídias a uma categoria.\n"
-            "1. Responda à mídia desejada ou envie a mídia junto com o comando.\n"
-            "2. Execute, por exemplo: `/addmidia coroas photo 2`\n"
-            "Tipos: photo, video, document, animation. Peso opcional (padrão 1)."
         ),
         "addcopy": (
             "Registra textos (copies) ligados à categoria.\n"

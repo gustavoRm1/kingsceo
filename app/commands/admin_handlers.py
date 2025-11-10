@@ -56,45 +56,6 @@ async def _get_category_id(service: CategoryService, slug: str) -> int:
     return category.id
 
 
-async def cmd_addmidia(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    message = update.effective_message
-    if not message:
-        return
-    if not await _require_admin(update):
-        return
-    if len(context.args) < 2:
-        await message.reply_text("Uso: /addmidia <slug_categoria> <tipo: photo|video|document|animation> [peso]")
-        return
-    slug = context.args[0]
-    media_type = context.args[1]
-    weight = int(context.args[2]) if len(context.args) > 2 else 1
-    source = message.reply_to_message or message
-    file_id = None
-    caption = source.caption if source else None
-    if media_type == "photo" and source.photo:
-        file_id = source.photo[-1].file_id
-    elif media_type == "video" and source.video:
-        file_id = source.video.file_id
-    elif media_type == "document" and source.document:
-        file_id = source.document.file_id
-    elif media_type == "animation" and source.animation:
-        file_id = source.animation.file_id
-    if not file_id:
-        await message.reply_text("Envie ou responda a uma mensagem contendo a midia informada.")
-        return
-    async with get_session() as session:
-        service = CategoryService(CategoryRepository(session))
-        category_id = await _get_category_id(service, slug)
-        media = await service.add_media(
-            category_id,
-            media_type=media_type,
-            file_id=file_id,
-            caption=caption,
-            weight=weight,
-        )
-    await message.reply_text(f"Midia registrada para {slug}: {media.media_type}")
-
-
 async def cmd_addcopy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     if not message:
@@ -233,7 +194,6 @@ async def cmd_setrepositorio(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 def register_admin_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("setcategoria", cmd_setcategoria, filters=filters.ChatType.PRIVATE))
-    application.add_handler(CommandHandler("addmidia", cmd_addmidia, filters=filters.ChatType.PRIVATE))
     application.add_handler(CommandHandler("addcopy", cmd_addcopy, filters=filters.ChatType.PRIVATE))
     application.add_handler(CommandHandler("setbotao", cmd_setbotao, filters=filters.ChatType.PRIVATE))
     application.add_handler(CommandHandler("setboasvindas", cmd_setboasvindas, filters=filters.ChatType.PRIVATE))
