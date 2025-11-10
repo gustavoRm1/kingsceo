@@ -143,6 +143,8 @@ async def cmd_setboasvindas(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             for btn in row
             if btn.url
         ]
+    copy_random = any(arg.lower() == "copy=random" for arg in context.args[1:])
+    media_random = any(arg.lower() == "media=random" for arg in context.args[1:])
     async with get_session() as session:
         service = CategoryService(CategoryRepository(session))
         category_id = await _get_category_id(service, slug)
@@ -152,8 +154,16 @@ async def cmd_setboasvindas(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             text=text,
             media_id=media_id,
             buttons=buttons,
+            use_random_copy=copy_random,
+            use_random_media=media_random,
         )
-    await message.reply_text(f"Boas-vindas configuradas para {slug} (modo={mode}).")
+    toggles = []
+    if copy_random:
+        toggles.append("copy aleatória")
+    if media_random:
+        toggles.append("mídia aleatória")
+    toggle_text = " | ".join(toggles) if toggles else "uso padrão (primeiro item)"
+    await message.reply_text(f"Boas-vindas configuradas para {slug} (modo={mode}). {toggle_text}.")
 
 
 async def cmd_setrepositorio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

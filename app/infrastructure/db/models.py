@@ -18,6 +18,8 @@ class Category(Base):
     welcome_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     welcome_media_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     welcome_buttons: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    use_random_copy: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    use_random_media: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
     groups: Mapped[list["Group"]] = relationship("Group", back_populates="category")

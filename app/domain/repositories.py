@@ -114,6 +114,8 @@ class CategoryRepository:
         text: str | None,
         media_id: str | None,
         buttons: list[dict] | None,
+        use_random_copy: bool | None = None,
+        use_random_media: bool | None = None,
     ) -> Category:
         stmt = (
             update(Category)
@@ -123,6 +125,18 @@ class CategoryRepository:
                 welcome_text=text,
                 welcome_media_id=media_id,
                 welcome_buttons=buttons if buttons else None,
+                **(
+                    {}
+                    if use_random_copy is None and use_random_media is None
+                    else {
+                        k: v
+                        for k, v in {
+                            "use_random_copy": use_random_copy,
+                            "use_random_media": use_random_media,
+                        }.items()
+                        if v is not None
+                    }
+                ),
             )
             .returning(Category)
         )

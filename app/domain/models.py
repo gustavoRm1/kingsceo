@@ -45,6 +45,8 @@ class CategoryDTO(BaseDTO):
     welcome_text: str | None = None
     welcome_media_id: str | None = None
     welcome_buttons: dict[str, Any] | None = None
+    use_random_copy: bool = True
+    use_random_media: bool = True
     created_at: datetime
     media_items: Sequence[MediaDTO] | None = None
     copies: Sequence[CopyDTO] | None = None

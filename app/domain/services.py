@@ -74,6 +74,8 @@ class CategoryService:
         text: str | None,
         media_id: str | None,
         buttons: list[dict] | None,
+        use_random_copy: bool | None = None,
+        use_random_media: bool | None = None,
     ) -> models.CategoryDTO:
         category = await self.repo.update_welcome(
             category_id,
@@ -81,6 +83,8 @@ class CategoryService:
             text=text,
             media_id=media_id,
             buttons=buttons,
+            use_random_copy=use_random_copy,
+            use_random_media=use_random_media,
         )
         return models.CategoryDTO.model_validate(category)
 
@@ -99,15 +103,21 @@ class CategoryService:
 
         media_dto = None
         if allow_media and category.media_items:
-            media_choice = weighted_choice([(m, m.weight or 1) for m in category.media_items])
-            if media_choice:
-                media_dto = models.MediaDTO.model_validate(media_choice)
+            if category.use_random_media:
+                media_choice = weighted_choice([(m, m.weight or 1) for m in category.media_items])
+                if media_choice:
+                    media_dto = models.MediaDTO.model_validate(media_choice)
+            else:
+                media_dto = models.MediaDTO.model_validate(category.media_items[0])
 
         copy_dto = None
         if allow_copy and category.copies:
-            copy_choice = weighted_choice([(c, c.weight or 1) for c in category.copies])
-            if copy_choice:
-                copy_dto = models.CopyDTO.model_validate(copy_choice)
+            if category.use_random_copy:
+                copy_choice = weighted_choice([(c, c.weight or 1) for c in category.copies])
+                if copy_choice:
+                    copy_dto = models.CopyDTO.model_validate(copy_choice)
+            else:
+                copy_dto = models.CopyDTO.model_validate(category.copies[0])
 
         buttons: list[models.ButtonDTO] = []
         if allow_buttons and category.buttons:
