@@ -139,11 +139,12 @@ async def menu_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             try:
                 category = await service.create_category(name=name)
             except AlreadyExistsError as exc:
-                await chat.send_message(str(exc))
+                await chat.send_message(str(exc), reply_markup=_build_main_menu())
             else:
                 await chat.send_message(
                     f"Categoria criada com sucesso!\nNome: {category.name}\nSlug: `{category.slug}`",
                     parse_mode="Markdown",
+                    reply_markup=_build_main_menu(),
                 )
         context.user_data.pop(STATE_KEY, None)
 
