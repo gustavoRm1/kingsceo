@@ -51,19 +51,13 @@ async def run_bot(config: BotConfig) -> None:
     register_admin_handlers(application)
 
     monitor = HeartbeatMonitor(_heartbeat_callable)
-    await monitor.start(HeartbeatConfig(bot_name=config.name, interval=60))
     supervisor = BotSupervisor()
-    await supervisor.start()
-
-    logger.info("bot.start", name=config.name, role=config.role)
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling()
     try:
-        await application.updater.wait()
+        await monitor.start(HeartbeatConfig(bot_name=config.name, interval=60))
+        await supervisor.start()
+        logger.info("bot.start", name=config.name, role=config.role)
+        await application.run_polling(stop_signals=None)
     finally:
-        await application.stop()
-        await application.shutdown()
         await monitor.stop()
         await supervisor.stop()
         logger.info("bot.stop", name=config.name)
