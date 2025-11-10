@@ -169,9 +169,12 @@ async def cmd_setrepositorio(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     slug = context.args[0]
     user = update.effective_user
+    sender_chat = message.sender_chat
     is_global_admin = _is_admin(update)
     user_is_chat_admin = False
-    if user:
+    if sender_chat and sender_chat.id == chat.id:
+        user_is_chat_admin = True
+    elif user:
         try:
             admins = await context.bot.get_chat_administrators(chat.id)
         except Exception:
