@@ -74,7 +74,7 @@ class BotDTO(BaseDTO):
 
 class Payload(BaseModel):
     media: MediaDTO | None = None
-    copy: CopyDTO | None = None
+    message: CopyDTO | None = None
     buttons: list[ButtonDTO] = Field(default_factory=list)
 
 

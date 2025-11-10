@@ -103,7 +103,7 @@ class CategoryService:
             if button_choice:
                 buttons.append(models.ButtonDTO.model_validate(button_choice))
 
-        return models.Payload(media=media_dto, copy=copy_dto, buttons=buttons)
+        return models.Payload(media=media_dto, message=copy_dto, buttons=buttons)
 
 
 class GroupService:

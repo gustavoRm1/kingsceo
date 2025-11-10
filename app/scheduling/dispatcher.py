@@ -65,7 +65,7 @@ class DispatchEngine:
 
         try:
             if payload.media:
-                caption = payload.media.caption or (payload.copy.text if payload.copy else None)
+                caption = payload.media.caption or (payload.message.text if payload.message else None)
                 if payload.media.media_type == "photo":
                     await self.application.bot.send_photo(
                         chat_id=chat_id,
@@ -99,10 +99,10 @@ class DispatchEngine:
                     return
                 return
 
-            if payload.copy:
+            if payload.message:
                 await self.application.bot.send_message(
                     chat_id=chat_id,
-                    text=payload.copy.text,
+                    text=payload.message.text,
                     reply_markup=markup,
                 )
                 return

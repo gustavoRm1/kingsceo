@@ -4,8 +4,10 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any, ClassVar, Literal
 
-from pydantic import AnyUrl, Field, PostgresDsn, field_validator
+from pydantic import Field, PostgresDsn, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from .exceptions import ConfigurationError
 
 
 class AppSettings(BaseSettings):
@@ -60,5 +62,15 @@ class AppSettings(BaseSettings):
 def get_settings() -> AppSettings:
     """Return cached application settings."""
 
-    return AppSettings()  # type: ignore[call-arg]
+    try:
+        return AppSettings()  # type: ignore[call-arg]
+    except ValidationError as exc:  # pragma: no cover - configuration guards
+        missing = {e["loc"][0] for e in exc.errors() if e["type"] == "missing"}
+        if missing:
+            fields = ", ".join(sorted(str(name) for name in missing))
+            raise ConfigurationError(
+                f"Variaveis de ambiente ausentes: {fields}. "
+                "Crie um arquivo .env na raiz do projeto ou exporte essas variaveis."
+            ) from exc
+        raise
 
