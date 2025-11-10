@@ -23,6 +23,7 @@ def _build_main_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("Adicionar mídia (/addmidia)", callback_data=f"{MENU_PREFIX}addmidia")],
         [InlineKeyboardButton("Adicionar copy (/addcopy)", callback_data=f"{MENU_PREFIX}addcopy")],
         [InlineKeyboardButton("Adicionar botão (/setbotao)", callback_data=f"{MENU_PREFIX}setbotao")],
+        [InlineKeyboardButton("Configurar repositório (/setrepositorio)", callback_data=f"{MENU_PREFIX}setrepos")],
         [InlineKeyboardButton("Configurar boas-vindas (/setboasvindas)", callback_data=f"{MENU_PREFIX}setboasvindas")],
     ]
     return InlineKeyboardMarkup(buttons)
@@ -80,6 +81,11 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "Cria botões inline para a categoria.\n"
             "Exemplo: `/setbotao coroas \"Assinar\" https://exemplo.com 2`\n"
             "A URL deve começar com http:// ou https://. Peso opcional."
+        ),
+        "setrepos": (
+            "Define o grupo atual como repositório de mídias de uma categoria.\n"
+            "No grupo desejado execute `/setrepositorio <slug>` (o bot e o usuário devem ser administradores).\n"
+            "Toda mídia enviada por admins será cadastrada automaticamente na categoria."
         ),
         "setboasvindas": (
             "Define a mensagem de boas-vindas para grupos/canais associados.\n"

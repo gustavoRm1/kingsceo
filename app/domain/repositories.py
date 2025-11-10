@@ -8,7 +8,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import AlreadyExistsError, NotFoundError
-from app.infrastructure.db.models import Bot, Button, Category, Copy, Group, Media
+from app.infrastructure.db.models import (
+    Bot,
+    Button,
+    Category,
+    Copy,
+    Group,
+    Media,
+    MediaRepositoryMap,
+)
 
 
 class CategoryRepository:
@@ -75,6 +83,11 @@ class CategoryRepository:
         self.session.add(media)
         await self.session.flush()
         return media
+
+    async def media_exists(self, category_id: int, file_id: str) -> bool:
+        stmt = select(Media.id).where(Media.category_id == category_id, Media.file_id == file_id)
+        result = await self.session.scalar(stmt)
+        return result is not None
 
     async def add_copy(self, category_id: int, *, text: str, weight: int) -> Copy:
         copy = Copy(category_id=category_id, text=text, weight=weight)
@@ -187,6 +200,37 @@ class BotRepository:
             update(Bot)
             .where(Bot.id == bot_id)
             .values(last_heartbeat=sa.func.now())
+        )
+        await self.session.execute(stmt)
+
+
+class MediaRepositoryMapRepository:
+    def __init__(self, session):
+        self.session = session
+
+    async def upsert(self, *, chat_id: int, category_id: int) -> MediaRepositoryMap:
+        stmt = select(MediaRepositoryMap).where(MediaRepositoryMap.chat_id == chat_id)
+        mapping = await self.session.scalar(stmt)
+        if mapping:
+            mapping.category_id = category_id
+            mapping.active = True
+        else:
+            mapping = MediaRepositoryMap(chat_id=chat_id, category_id=category_id, active=True)
+            self.session.add(mapping)
+        await self.session.flush()
+        return mapping
+
+    async def get_by_chat(self, chat_id: int) -> MediaRepositoryMap | None:
+        stmt = select(MediaRepositoryMap).where(
+            MediaRepositoryMap.chat_id == chat_id, MediaRepositoryMap.active.is_(True)
+        )
+        return await self.session.scalar(stmt)
+
+    async def deactivate(self, chat_id: int) -> None:
+        stmt = (
+            update(MediaRepositoryMap)
+            .where(MediaRepositoryMap.chat_id == chat_id)
+            .values(active=False)
         )
         await self.session.execute(stmt)
 

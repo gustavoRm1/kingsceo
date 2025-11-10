@@ -24,6 +24,9 @@ class Category(Base):
     media_items: Mapped[list["Media"]] = relationship("Media", back_populates="category")
     copies: Mapped[list["Copy"]] = relationship("Copy", back_populates="category")
     buttons: Mapped[list["Button"]] = relationship("Button", back_populates="category")
+    repositories: Mapped[list["MediaRepositoryMap"]] = relationship(
+        "MediaRepositoryMap", back_populates="category"
+    )
 
     def set_slug(self) -> None:
         if not self.slug:
@@ -108,6 +111,17 @@ class BotFailoverLog(Base):
     new_bot_id: Mapped[int | None] = mapped_column(ForeignKey("bot.id", ondelete="SET NULL"))
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+class MediaRepositoryMap(Base):
+    __tablename__ = "media_repository"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    category_id: Mapped[int] = mapped_column(ForeignKey("category.id", ondelete="CASCADE"), nullable=False)
+    chat_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+    category: Mapped["Category"] = relationship("Category", back_populates="repositories")
 
 
 @event.listens_for(Category, "before_insert")

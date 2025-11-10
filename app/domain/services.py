@@ -22,6 +22,10 @@ class CategoryService:
         category = await self.repo.get_by_slug(slug)
         return models.CategoryDTO.model_validate(category)
 
+    async def get_category_by_id(self, category_id: int) -> models.CategoryDTO:
+        category = await self.repo.get_by_id(category_id)
+        return models.CategoryDTO.model_validate(category)
+
     async def add_media(
         self,
         category_id: int,
@@ -39,6 +43,9 @@ class CategoryService:
             weight=weight,
         )
         return models.MediaDTO.model_validate(media)
+
+    async def media_exists(self, category_id: int, file_id: str) -> bool:
+        return await self.repo.media_exists(category_id, file_id)
 
     async def add_copy(self, category_id: int, *, text: str, weight: int = 1) -> models.CopyDTO:
         copy = await self.repo.add_copy(category_id, text=text, weight=weight)
@@ -157,3 +164,24 @@ class BotService:
     async def heartbeat_by_name(self, name: str) -> None:
         bot = await self.repo.get_by_name(name)
         await self.repo.heartbeat(bot.id)
+
+
+class MediaRepositoryService:
+    def __init__(
+        self,
+        mapping_repo,
+        category_repo: CategoryRepository,
+    ):
+        self.mapping_repo = mapping_repo
+        self.category_repo = category_repo
+
+    async def assign_repository(self, *, chat_id: int, category_slug: str) -> models.MediaRepositoryDTO:
+        category = await self.category_repo.get_by_slug(category_slug)
+        mapping = await self.mapping_repo.upsert(chat_id=chat_id, category_id=category.id)
+        return models.MediaRepositoryDTO.model_validate(mapping)
+
+    async def get_mapping(self, chat_id: int) -> models.MediaRepositoryDTO | None:
+        mapping = await self.mapping_repo.get_by_chat(chat_id)
+        if not mapping:
+            return None
+        return models.MediaRepositoryDTO.model_validate(mapping)

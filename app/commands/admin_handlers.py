@@ -3,12 +3,13 @@ from __future__ import annotations
 import re
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.constants import ChatType
+from telegram.constants import ChatMemberStatus, ChatType
 from telegram.ext import Application, CommandHandler, ContextTypes, filters
 
 from app.core.config import get_settings
-from app.domain.repositories import CategoryRepository
-from app.domain.services import CategoryService
+from app.core.exceptions import NotFoundError
+from app.domain.repositories import CategoryRepository, MediaRepositoryMapRepository
+from app.domain.services import CategoryService, MediaRepositoryService
 from app.infrastructure.db.base import get_session
 
 
@@ -194,10 +195,47 @@ async def cmd_setboasvindas(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     await message.reply_text(f"Boas-vindas configuradas para {slug} (modo={mode}).")
 
 
+async def cmd_setrepositorio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    chat = update.effective_chat
+    if not message or not chat:
+        return
+    if chat.type not in {ChatType.SUPERGROUP, ChatType.GROUP}:
+        await message.reply_text("Execute este comando dentro do grupo ou supergrupo que será o repositório.")
+        return
+    if not await _require_admin(update):
+        return
+    if not context.args:
+        await message.reply_text("Uso: /setrepositorio <slug_categoria>")
+        return
+    slug = context.args[0]
+    user = update.effective_user
+    if user:
+        member = await context.bot.get_chat_member(chat.id, user.id)
+        if member.status not in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER}:
+            await message.reply_text("Somente administradores do grupo podem definir o repositório.")
+            return
+    async with get_session() as session:
+        category_service = CategoryService(CategoryRepository(session))
+        repo_service = MediaRepositoryService(MediaRepositoryMapRepository(session), CategoryRepository(session))
+        try:
+            mapping = await repo_service.assign_repository(chat_id=chat.id, category_slug=slug)
+            category = await category_service.get_category_by_slug(slug)
+        except NotFoundError as exc:
+            await message.reply_text(str(exc))
+            return
+    await message.reply_text(
+        f"Grupo configurado como repositório da categoria `{category.slug}`.\n"
+        f"Nome: {category.name}\nChat ID: `{mapping.chat_id}`",
+        parse_mode="Markdown",
+    )
+
+
 def register_admin_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("setcategoria", cmd_setcategoria, filters=filters.ChatType.PRIVATE))
     application.add_handler(CommandHandler("addmidia", cmd_addmidia, filters=filters.ChatType.PRIVATE))
     application.add_handler(CommandHandler("addcopy", cmd_addcopy, filters=filters.ChatType.PRIVATE))
     application.add_handler(CommandHandler("setbotao", cmd_setbotao, filters=filters.ChatType.PRIVATE))
     application.add_handler(CommandHandler("setboasvindas", cmd_setboasvindas, filters=filters.ChatType.PRIVATE))
+    application.add_handler(CommandHandler("setrepositorio", cmd_setrepositorio))
 

@@ -55,6 +55,9 @@ Todos os comandos administrativos devem ser executados em um chat privado com o 
 - `/setbotao <slug> <label> <url> [peso]`  
   Registra um botao inline com texto e link (URL obrigatoriamente `http://` ou `https://`). `peso` define probabilidade em envio aleatorio.
 
+- `/setrepositorio <slug>`  
+  Executado dentro do grupo que servira como repositório de mídias. O bot e o usuario que aciona o comando precisam ser administradores. Todas as midias (foto, video, documento, animacao) enviadas por admins nesse grupo passam a ser cadastradas automaticamente na categoria indicada, sem necessidade de usar `/addmidia`.
+
 - `/setboasvindas <slug> mode=<all|text|media|buttons|none>`  
   Configura a mensagem de boas-vindas de grupos/canais ligados a categoria. Responda a mensagem contendo o conteudo desejado (texto, midia e/ou botoes). Modos:
   - `all`: envia texto, midia e botoes quando disponiveis.
@@ -67,9 +70,10 @@ Todos os comandos administrativos devem ser executados em um chat privado com o 
 
 1. Execute `/setcategoria` para criar a categoria e anote o *slug* retornado.  
 2. Use `/addmidia`, `/addcopy` e `/setbotao` para popular os conteudos.  
-3. Configure as boas-vindas com `/setboasvindas`.  
-4. Adicione o bot aos grupos/canais desejados e garanta permissao de administrador.  
-5. Os envios aleatorios utilizarao o material cadastrado; falhas e failover sao informados ao admin via notificacoes e logs.
+3. (Opcional) Converta um grupo em repositório executando `/setrepositorio <slug>` dentro dele; todas as mídias dos administradores serão importadas automaticamente.  
+4. Configure as boas-vindas com `/setboasvindas`.  
+5. Adicione o bot aos grupos/canais desejados e garanta permissao de administrador.  
+6. Os envios aleatorios utilizarao o material cadastrado; falhas e failover sao informados ao admin via notificacoes e logs.
 
 ## Proximas etapas
 

@@ -78,3 +78,11 @@ class Payload(BaseModel):
     buttons: list[ButtonDTO] = Field(default_factory=list)
 
 
+class MediaRepositoryDTO(BaseDTO):
+    id: int
+    category_id: int
+    chat_id: int
+    active: bool
+    created_at: datetime
+
+

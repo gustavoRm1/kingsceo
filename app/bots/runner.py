@@ -12,6 +12,7 @@ from app.bots.registry import BotConfig, load_registry
 from app.bots.supervisor import BotSupervisor
 from app.commands.admin_handlers import register_admin_handlers
 from app.commands.menu_handlers import register_menu_handlers
+from app.commands.repository_handlers import register_repository_handlers
 from app.core.config import get_settings
 from app.core.exceptions import NotFoundError
 from app.core.logging import configure_logging, get_logger
@@ -54,6 +55,7 @@ async def run_bot(config: BotConfig) -> None:
 
     register_admin_handlers(application)
     register_menu_handlers(application)
+    register_repository_handlers(application)
 
     monitor = HeartbeatMonitor(_heartbeat_callable)
     notifier = AdminNotifier(application.bot, get_settings().admin_ids)
