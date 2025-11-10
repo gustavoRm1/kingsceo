@@ -172,8 +172,11 @@ async def cmd_setrepositorio(update: Update, context: ContextTypes.DEFAULT_TYPE)
     is_global_admin = _is_admin(update)
     user_is_chat_admin = False
     if user:
-        member = await context.bot.get_chat_member(chat.id, user.id)
-        user_is_chat_admin = member.status in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER}
+        try:
+            admins = await context.bot.get_chat_administrators(chat.id)
+        except Exception:
+            admins = []
+        user_is_chat_admin = any(admin.user.id == user.id for admin in admins)
     if not (is_global_admin or user_is_chat_admin):
         await message.reply_text("Somente administradores podem definir o repositório.")
         return
