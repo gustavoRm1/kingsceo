@@ -266,6 +266,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "category_id": category.id,
             "category_slug": category.slug,
             "category_name": category.name,
+            "button_count": len(category.buttons or []),
         }
         await query.edit_message_text(
             f"Categoria selecionada: {category.name}.\n"
@@ -293,8 +294,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         ),
         "setbotao": (
             "Cria botões inline para a categoria.\n"
-            "Exemplo: `/setbotao coroas \"Assinar\" https://exemplo.com 2`\n"
-            "A URL deve começar com http:// ou https://. Peso opcional."
+            "A posição define a ordem de exibição (1 fica no topo)."
         ),
         "setrepos": (
             "Define o grupo atual como repositório de mídias de uma categoria.\n"
@@ -423,16 +423,22 @@ async def menu_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             return
         pending["button_url"] = url
         pending["action"] = "setbotao_weight"
-        await chat.send_message("Informe o peso do botão (número inteiro, padrão 1).")
+        await chat.send_message(
+            "Informe a posição do botão (número inteiro, 1 fica no topo). "
+            "Se enviar qualquer outro texto, usaremos automaticamente a próxima posição disponível."
+        )
     elif action == "setbotao_weight":
         weight_text = message.text.strip()
+        base_count = pending.get("button_count", 0)
+        auto_assigned = False
         if not weight_text.isdigit():
-            await chat.send_message("Peso inválido. Envie um número inteiro maior que zero.")
-            return
-        weight = int(weight_text)
-        if weight <= 0:
-            await chat.send_message("Peso deve ser maior que zero.")
-            return
+            weight = base_count + 1
+            auto_assigned = True
+        else:
+            weight = int(weight_text)
+            if weight <= 0:
+                weight = base_count + 1
+                auto_assigned = True
         category_id = pending.get("category_id")
         category_slug = pending.get("category_slug")
         label = pending.get("button_label")
@@ -440,9 +446,10 @@ async def menu_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         async with get_session() as session:
             service = CategoryService(CategoryRepository(session))
             await service.add_button(category_id, label=label, url=url, weight=weight)
+        position_note = " (posição automática)" if auto_assigned else ""
         await chat.send_message(
             f"Botão registrado para a categoria `{category_slug}`.\n"
-            f"Label: {label}\nURL: {url}\nPeso: {weight}",
+            f"Label: {label}\nURL: {url}\nPosição: {weight}{position_note}",
             parse_mode="Markdown",
             reply_markup=_build_main_menu(),
         )

@@ -111,9 +111,11 @@ class CategoryService:
 
         buttons: list[models.ButtonDTO] = []
         if allow_buttons and category.buttons:
-            button_choice = weighted_choice([(b, b.weight or 1) for b in category.buttons])
-            if button_choice:
-                buttons.append(models.ButtonDTO.model_validate(button_choice))
+            ordered_buttons = sorted(
+                category.buttons,
+                key=lambda b: (b.weight or 0, b.id),
+            )
+            buttons = [models.ButtonDTO.model_validate(btn) for btn in ordered_buttons]
 
         return models.Payload(media=media_dto, message=copy_dto, buttons=buttons)
 

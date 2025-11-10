@@ -48,8 +48,8 @@ Todos os comandos administrativos devem ser executados em um chat privado com o 
 - `/addcopy <slug> [peso]`  
   Salva um texto associado a categoria. O texto e lido da mensagem respondida ou dos argumentos restantes. `peso` controla a chance de envio (padrao 1).
 
-- `/setbotao <slug> <label> <url> [peso]`  
-  Registra um botao inline com texto e link (URL obrigatoriamente `http://` ou `https://`). `peso` define probabilidade em envio aleatorio.
+- `/setbotao <slug> <label> <url> [posicao]`  
+  Registra um botao inline com texto e link (URL obrigatoriamente `http://` ou `https://`). A posicao (padrao: proxima disponivel) define a ordem em que os botoes aparecerao no envio (1 fica no topo).
 
 - `/setrepositorio <slug>`  
   Executado dentro do grupo que servira como repositório de mídias. O bot e o usuario que aciona o comando precisam ser administradores. Todas as midias (foto, video, documento, animacao) enviadas por admins nesse grupo passam a ser cadastradas automaticamente na categoria indicada, sem necessidade de usar `/addmidia`.

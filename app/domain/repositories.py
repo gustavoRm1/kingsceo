@@ -27,7 +27,7 @@ class CategoryRepository:
         stmt = select(Category).options(
             selectinload(Category.media_items),
             selectinload(Category.copies),
-            selectinload(Category.buttons),
+            selectinload(Category.buttons).order_by(Button.weight, Button.id),
         )
         result = await self.session.scalars(stmt)
         return result.all()
@@ -39,7 +39,7 @@ class CategoryRepository:
             .options(
                 selectinload(Category.media_items),
                 selectinload(Category.copies),
-                selectinload(Category.buttons),
+                selectinload(Category.buttons).order_by(Button.weight, Button.id),
             )
         )
         category = await self.session.scalar(stmt)
@@ -54,7 +54,7 @@ class CategoryRepository:
             .options(
                 selectinload(Category.media_items),
                 selectinload(Category.copies),
-                selectinload(Category.buttons),
+                selectinload(Category.buttons).order_by(Button.weight, Button.id),
             )
         )
         category = await self.session.scalar(stmt)
