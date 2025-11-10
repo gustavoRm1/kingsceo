@@ -3,6 +3,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 
+import contextlib
+import signal
+
 from telegram.ext import Application
 
 from app.bots.heartbeat import HeartbeatConfig, HeartbeatMonitor
@@ -52,12 +55,28 @@ async def run_bot(config: BotConfig) -> None:
 
     monitor = HeartbeatMonitor(_heartbeat_callable)
     supervisor = BotSupervisor()
+    stop_event = asyncio.Event()
+
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        with contextlib.suppress(NotImplementedError):
+            loop.add_signal_handler(sig, stop_event.set)
+
     try:
         await monitor.start(HeartbeatConfig(bot_name=config.name, interval=60))
         await supervisor.start()
         logger.info("bot.start", name=config.name, role=config.role)
-        await application.run_polling(stop_signals=None)
+        await application.initialize()
+        await application.start()
+        await application.updater.start_polling()
+        await stop_event.wait()
+    except asyncio.CancelledError:
+        stop_event.set()
+        raise
     finally:
+        await application.updater.stop()
+        await application.stop()
+        await application.shutdown()
         await monitor.stop()
         await supervisor.stop()
         logger.info("bot.stop", name=config.name)
