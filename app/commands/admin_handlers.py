@@ -164,18 +164,23 @@ async def cmd_setrepositorio(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if chat.type not in {ChatType.SUPERGROUP, ChatType.GROUP}:
         await message.reply_text("Execute este comando dentro do grupo ou supergrupo que será o repositório.")
         return
-    if not await _require_admin(update):
-        return
     if not context.args:
         await message.reply_text("Uso: /setrepositorio <slug_categoria>")
         return
     slug = context.args[0]
     user = update.effective_user
+    is_global_admin = _is_admin(update)
+    user_is_chat_admin = False
     if user:
         member = await context.bot.get_chat_member(chat.id, user.id)
-        if member.status not in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER}:
-            await message.reply_text("Somente administradores do grupo podem definir o repositório.")
-            return
+        user_is_chat_admin = member.status in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER}
+    if not (is_global_admin or user_is_chat_admin):
+        await message.reply_text("Somente administradores podem definir o repositório.")
+        return
+    bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
+    if bot_member.status not in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER}:
+        await message.reply_text("O bot precisa ser administrador do grupo para cadastrar mídias automaticamente.")
+        return
     async with get_session() as session:
         category_service = CategoryService(CategoryRepository(session))
         repo_service = MediaRepositoryService(MediaRepositoryMapRepository(session), CategoryRepository(session))
