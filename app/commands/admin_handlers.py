@@ -1,15 +1,35 @@
+async def my_chat_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_member_update = update.my_chat_member
+    chat = update.effective_chat
+    if not chat_member_update or not chat:
+        return
+
+    if chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        return
+
+    new_status = chat_member_update.new_chat_member.status
+    if new_status not in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER}:
+        return
+
+    old_status = chat_member_update.old_chat_member.status if chat_member_update.old_chat_member else None
+    if old_status in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER}:
+        return
+
+    async with get_session() as session:
+        group_service = GroupService(GroupRepository(session))
+        await group_service.upsert_group(chat_id=chat.id, title=chat.title, category_id=None)
 from __future__ import annotations
 
 import re
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatMemberStatus, ChatType
-from telegram.ext import Application, CommandHandler, ContextTypes, filters
+from telegram.ext import Application, CommandHandler, ContextTypes, MyChatMemberHandler, filters
 
 from app.core.config import get_settings
 from app.core.exceptions import NotFoundError
-from app.domain.repositories import CategoryRepository, MediaRepositoryMapRepository
-from app.domain.services import CategoryService, MediaRepositoryService
+from app.domain.repositories import CategoryRepository, GroupRepository, MediaRepositoryMapRepository
+from app.domain.services import CategoryService, GroupService, MediaRepositoryService
 from app.infrastructure.db.base import get_session
 
 
@@ -37,8 +57,61 @@ async def _require_admin(update: Update) -> bool:
 
 async def cmd_setcategoria(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
-    if not message:
+    chat = update.effective_chat
+    if not message or not chat:
         return
+
+    # Grupo: vincular categoria existente ao grupo
+    if chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        if not context.args:
+            await message.reply_text("Uso: /setcategoria <slug_categoria>")
+            return
+        slug = context.args[0]
+
+        user = update.effective_user
+        sender_chat = message.sender_chat
+        is_global_admin = _is_admin(update)
+        user_is_chat_admin = False
+        if sender_chat and sender_chat.id == chat.id:
+            user_is_chat_admin = True
+        elif user:
+            try:
+                admins = await context.bot.get_chat_administrators(chat.id)
+            except Exception:
+                admins = []
+            user_is_chat_admin = any(admin.user.id == user.id for admin in admins)
+
+        if not (is_global_admin or user_is_chat_admin):
+            await message.reply_text("Somente administradores podem vincular uma categoria ao grupo.")
+            return
+
+        bot_member = await context.bot.get_chat_member(chat.id, context.bot.id)
+        if bot_member.status not in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER}:
+            await message.reply_text("O bot precisa ser administrador do grupo para enviar conteúdos.")
+            return
+
+        async with get_session() as session:
+            category_service = CategoryService(CategoryRepository(session))
+            group_service = GroupService(GroupRepository(session))
+            try:
+                category = await category_service.get_category_by_slug(slug)
+            except NotFoundError:
+                await message.reply_text(f"Categoria '{slug}' não encontrada. Crie-a antes em privado.")
+                return
+            group = await group_service.upsert_group(
+                chat_id=chat.id,
+                title=chat.title,
+                category_id=category.id,
+            )
+        await message.reply_text(
+            f"Grupo vinculado à categoria `{category.slug}`.\n"
+            f"Nome da categoria: {category.name}\n"
+            f"Chat ID: `{group.telegram_chat_id}`",
+            parse_mode="Markdown",
+        )
+        return
+
+    # Privado: criar nova categoria
     if not await _require_admin(update):
         return
     if not context.args:
@@ -48,7 +121,10 @@ async def cmd_setcategoria(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     async with get_session() as session:
         service = CategoryService(CategoryRepository(session))
         category = await service.create_category(name)
-    await message.reply_text(f"Categoria criada: {category.name} (slug={category.slug})")
+    await message.reply_text(
+        f"Categoria criada: {category.name} (slug={category.slug}).\n"
+        "Use este slug para vincular grupos com /setcategoria <slug> dentro do grupo.",
+    )
 
 
 async def _get_category_id(service: CategoryService, slug: str) -> int:
@@ -214,9 +290,10 @@ async def cmd_setrepositorio(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 def register_admin_handlers(application: Application) -> None:
-    application.add_handler(CommandHandler("setcategoria", cmd_setcategoria, filters=filters.ChatType.PRIVATE))
+    application.add_handler(CommandHandler("setcategoria", cmd_setcategoria))
     application.add_handler(CommandHandler("addcopy", cmd_addcopy, filters=filters.ChatType.PRIVATE))
     application.add_handler(CommandHandler("setbotao", cmd_setbotao, filters=filters.ChatType.PRIVATE))
     application.add_handler(CommandHandler("setboasvindas", cmd_setboasvindas, filters=filters.ChatType.PRIVATE))
     application.add_handler(CommandHandler("setrepositorio", cmd_setrepositorio))
+    application.add_handler(MyChatMemberHandler(my_chat_member_handler))
 

@@ -40,7 +40,7 @@ class Group(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     telegram_chat_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
-    category_id: Mapped[int] = mapped_column(ForeignKey("category.id", ondelete="CASCADE"))
+    category_id: Mapped[int | None] = mapped_column(ForeignKey("category.id", ondelete="CASCADE"), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     clean_service_messages: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     assigned_bot_id: Mapped[int | None] = mapped_column(
@@ -50,7 +50,7 @@ class Group(Base):
     last_activity: Mapped[datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
-    category: Mapped["Category"] = relationship("Category", back_populates="groups")
+    category: Mapped["Category | None"] = relationship("Category", back_populates="groups")
     assigned_bot: Mapped["Bot | None"] = relationship("Bot", back_populates="groups")
 
 

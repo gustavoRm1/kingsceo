@@ -216,17 +216,23 @@ class GroupRepository:
     def __init__(self, session):
         self.session = session
 
-    async def upsert(self, *, chat_id: int, title: str | None, category_id: int) -> Group:
+    async def upsert(self, *, chat_id: int, title: str | None, category_id: int | None) -> Group:
         stmt = select(Group).where(Group.telegram_chat_id == chat_id)
         group = await self.session.scalar(stmt)
         if group:
             group.title = title or group.title
-            group.category_id = category_id
+            if category_id is not None:
+                group.category_id = category_id
+            group.active = True
         else:
             group = Group(telegram_chat_id=chat_id, title=title, category_id=category_id)
             self.session.add(group)
         await self.session.flush()
         return group
+
+    async def get_by_chat_id(self, chat_id: int) -> Group | None:
+        stmt = select(Group).where(Group.telegram_chat_id == chat_id)
+        return await self.session.scalar(stmt)
 
     async def assign_bot(self, group_id: int, bot_id: int | None) -> None:
         stmt = (
@@ -255,6 +261,25 @@ class GroupRepository:
         stmt = select(Group).where(Group.category_id == category_id, Group.active.is_(True))
         result = await self.session.scalars(stmt)
         return result.all()
+
+    async def list_all(self) -> Sequence[Group]:
+        stmt = select(Group)
+        result = await self.session.scalars(stmt)
+        return result.all()
+
+    async def update_category(self, *, chat_id: int, category_id: int | None) -> Group:
+        stmt = (
+            update(Group)
+            .where(Group.telegram_chat_id == chat_id)
+            .values(category_id=category_id)
+            .returning(Group)
+        )
+        result = await self.session.execute(stmt)
+        group = result.scalar_one_or_none()
+        if not group:
+            raise NotFoundError(f"Group chat_id {chat_id} not found.")
+        await self.session.flush()
+        return group
 
 
 class BotRepository:

@@ -58,7 +58,7 @@ class GroupDTO(BaseDTO):
     id: int
     telegram_chat_id: int
     title: str | None
-    category_id: int
+    category_id: int | None
     active: bool
     assigned_bot_id: int | None
     last_activity: datetime | None

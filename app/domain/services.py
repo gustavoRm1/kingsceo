@@ -179,7 +179,7 @@ class GroupService:
     def __init__(self, repo: GroupRepository):
         self.repo = repo
 
-    async def upsert_group(self, *, chat_id: int, title: str | None, category_id: int) -> models.GroupDTO:
+    async def upsert_group(self, *, chat_id: int, title: str | None, category_id: int | None) -> models.GroupDTO:
         group = await self.repo.upsert(chat_id=chat_id, title=title, category_id=category_id)
         return models.GroupDTO.model_validate(group)
 
@@ -193,6 +193,20 @@ class GroupService:
     async def list_by_category(self, category_id: int) -> Sequence[models.GroupDTO]:
         groups = await self.repo.list_by_category(category_id)
         return [models.GroupDTO.model_validate(group) for group in groups]
+
+    async def list_all(self) -> list[models.GroupDTO]:
+        groups = await self.repo.list_all()
+        return [models.GroupDTO.model_validate(group) for group in groups]
+
+    async def update_category(self, *, chat_id: int, category_id: int | None) -> models.GroupDTO:
+        group = await self.repo.update_category(chat_id=chat_id, category_id=category_id)
+        return models.GroupDTO.model_validate(group)
+
+    async def get_by_chat(self, chat_id: int) -> models.GroupDTO | None:
+        group = await self.repo.get_by_chat_id(chat_id)
+        if not group:
+            return None
+        return models.GroupDTO.model_validate(group)
 
 
 class BotService:

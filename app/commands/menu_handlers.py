@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Final
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -10,14 +11,16 @@ from app.core.config import get_settings
 from app.core.exceptions import AlreadyExistsError, NotFoundError
 from app.core.utils import weighted_choice
 from app.domain import models
-from app.domain.repositories import CategoryRepository, MediaRepositoryMapRepository
-from app.domain.services import CategoryService, MediaRepositoryService
+from app.domain.repositories import CategoryRepository, GroupRepository, MediaRepositoryMapRepository
+from app.domain.services import CategoryService, GroupService, MediaRepositoryService
 from app.infrastructure.db.base import get_session
 
 MENU_PREFIX: Final = "menu:"
 STATE_KEY: Final = "menu_pending"
 WELCOME_STATE_KEY: Final = "welcome_state"
 WELCOME_PANEL_CACHE_KEY: Final = "welcome_panels"
+GROUPS_PAGE_SIZE: Final = 8
+GROUP_CATEGORY_PAGE_SIZE: Final = 8
 
 
 def _build_main_menu() -> InlineKeyboardMarkup:
@@ -25,6 +28,7 @@ def _build_main_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("Adicione-me a um grupo", callback_data=f"{MENU_PREFIX}add_to_group")],
         [InlineKeyboardButton("Criar categoria (/setcategoria)", callback_data=f"{MENU_PREFIX}setcategoria")],
         [InlineKeyboardButton("Visão de categorias", callback_data=f"{MENU_PREFIX}viewcats")],
+        [InlineKeyboardButton("Gerenciar grupos", callback_data=f"{MENU_PREFIX}groups")],
         [InlineKeyboardButton("Adicionar copy (/addcopy)", callback_data=f"{MENU_PREFIX}addcopy")],
         [InlineKeyboardButton("Adicionar botão (/setbotao)", callback_data=f"{MENU_PREFIX}setbotao")],
         [InlineKeyboardButton("Configurar repositório (/setrepositorio)", callback_data=f"{MENU_PREFIX}setrepos")],
@@ -576,6 +580,194 @@ async def _start_delete_button_flow(query, context: ContextTypes.DEFAULT_TYPE, c
     )
 
 
+async def _fetch_groups() -> list[models.GroupDTO]:
+    async with get_session() as session:
+        service = GroupService(GroupRepository(session))
+        groups = list(await service.list_all())
+    groups.sort(key=lambda g: ((g.title or "").lower(), g.telegram_chat_id))
+    return groups
+
+
+async def _render_groups_index(query, context: ContextTypes.DEFAULT_TYPE, page: int = 0) -> None:
+    groups = await _fetch_groups()
+    total = len(groups)
+    if total == 0:
+        await query.edit_message_text(
+            "Nenhum grupo identificado ainda.\n"
+            "Adicione o bot como administrador nos grupos e execute `/setcategoria <slug>` dentro deles.",
+            reply_markup=_build_main_menu(),
+        )
+        return
+
+    total_pages = max(1, math.ceil(total / GROUPS_PAGE_SIZE))
+    page = max(0, min(page, total_pages - 1))
+    start = page * GROUPS_PAGE_SIZE
+    chunk = groups[start : start + GROUPS_PAGE_SIZE]
+
+    rows: list[list[InlineKeyboardButton]] = []
+    for group in chunk:
+        label = group.title or f"Chat {group.telegram_chat_id}"
+        suffix = " ✅" if group.category_id else " ⚠️"
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    f"{label}{suffix}",
+                    callback_data=f"{MENU_PREFIX}group_detail:{group.telegram_chat_id}",
+                )
+            ]
+        )
+
+    nav_row: list[InlineKeyboardButton] = []
+    if total_pages > 1:
+        if page > 0:
+            nav_row.append(
+                InlineKeyboardButton("⬅️ Anterior", callback_data=f"{MENU_PREFIX}groups_page:{page-1}")
+            )
+        nav_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="noop"))
+        if page < total_pages - 1:
+            nav_row.append(
+                InlineKeyboardButton("Próxima ➡️", callback_data=f"{MENU_PREFIX}groups_page:{page+1}")
+            )
+    if nav_row:
+        rows.append(nav_row)
+
+    rows.append([InlineKeyboardButton("🏠 Menu principal", callback_data=f"{MENU_PREFIX}back")])
+
+    await query.edit_message_text(
+        "Selecione o grupo para gerenciar:",
+        reply_markup=InlineKeyboardMarkup(rows),
+    )
+
+
+async def _render_group_detail(update: Update, query, context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> None:
+    async with get_session() as session:
+        group_service = GroupService(GroupRepository(session))
+        group = await group_service.get_by_chat(chat_id)
+        if not group:
+            await query.answer("Grupo não encontrado.", show_alert=True)
+            return
+        category_name = "Não vinculado"
+        category_slug = None
+        if group.category_id is not None:
+            category_service = CategoryService(CategoryRepository(session))
+            try:
+                category = await category_service.get_category_by_id(group.category_id)
+                category_name = category.name
+                category_slug = category.slug
+            except NotFoundError:
+                category_name = "Categoria removida"
+                category_slug = None
+
+    chat_link = None
+    try:
+        tg_chat = await context.bot.get_chat(chat_id)
+        if tg_chat.username:
+            chat_link = f"https://t.me/{tg_chat.username}"
+        elif tg_chat.invite_link:
+            chat_link = tg_chat.invite_link
+    except Exception:
+        chat_link = None
+
+    title = group.title or "—"
+    link_text = chat_link or "Indisponível"
+    category_line = f"{category_name}"
+    if category_slug:
+        category_line += f" (`{category_slug}`)"
+
+    detail_text = (
+        f"*Gestão de Grupo*\n\n"
+        f"*Nome:* {title}\n"
+        f"*Chat ID:* `{group.telegram_chat_id}`\n"
+        f"*Categoria atual:* {category_line}\n"
+        f"*Link:* {link_text}"
+    )
+
+    rows: list[list[InlineKeyboardButton]] = [
+        [InlineKeyboardButton("🔄 Definir categoria", callback_data=f"{MENU_PREFIX}group_set_category:{group.telegram_chat_id}")],
+    ]
+    if group.category_id is not None:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    "🧹 Desvincular categoria",
+                    callback_data=f"{MENU_PREFIX}group_unlink:{group.telegram_chat_id}",
+                )
+            ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton("⬅️ Voltar à lista de grupos", callback_data=f"{MENU_PREFIX}groups"),
+        ]
+    )
+    rows.append([InlineKeyboardButton("🏠 Menu principal", callback_data=f"{MENU_PREFIX}back")])
+
+    try:
+        await query.edit_message_text(
+            detail_text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(rows),
+        )
+    except BadRequest as exc:
+        if "Message is not modified" in str(exc):
+            return
+        raise
+
+
+async def _render_group_category_selector(query, chat_id: int, page: int = 0) -> None:
+    async with get_session() as session:
+        service = CategoryService(CategoryRepository(session))
+        categories = await service.list_categories()
+
+    total = len(categories)
+    if total == 0:
+        await query.answer("Nenhuma categoria cadastrada.", show_alert=True)
+        return
+
+    total_pages = max(1, math.ceil(total / GROUP_CATEGORY_PAGE_SIZE))
+    page = max(0, min(page, total_pages - 1))
+    start = page * GROUP_CATEGORY_PAGE_SIZE
+    chunk = categories[start : start + GROUP_CATEGORY_PAGE_SIZE]
+
+    rows: list[list[InlineKeyboardButton]] = []
+    for category in chunk:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    category.name,
+                    callback_data=f"{MENU_PREFIX}group_choose_category:{chat_id}:{category.id}",
+                )
+            ]
+        )
+
+    nav_row: list[InlineKeyboardButton] = []
+    if total_pages > 1:
+        if page > 0:
+            nav_row.append(
+                InlineKeyboardButton("⬅️", callback_data=f"{MENU_PREFIX}group_categories_page:{chat_id}:{page-1}")
+            )
+        nav_row.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="noop"))
+        if page < total_pages - 1:
+            nav_row.append(
+                InlineKeyboardButton("➡️", callback_data=f"{MENU_PREFIX}group_categories_page:{chat_id}:{page+1}")
+            )
+    if nav_row:
+        rows.append(nav_row)
+
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "⬅️ Voltar ao grupo",
+                callback_data=f"{MENU_PREFIX}group_detail:{chat_id}",
+            )
+        ]
+    )
+
+    await query.edit_message_text(
+        "Selecione a categoria que deseja vincular:",
+        reply_markup=InlineKeyboardMarkup(rows),
+    )
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     chat = update.effective_chat
@@ -596,6 +788,9 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await query.answer()
     data = query.data or ""
     action = data.removeprefix(MENU_PREFIX)
+
+    if action == "noop":
+        return
 
     if action == "setcategoria":
         if not _is_admin(update):
@@ -637,6 +832,95 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "Selecione a categoria para visualizar detalhes:",
             reply_markup=InlineKeyboardMarkup(rows),
         )
+        return
+    if action == "groups":
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        await _render_groups_index(query, context)
+        return
+    if action.startswith("groups_page:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        _, _, page_part = action.partition(":")
+        page = int(page_part) if page_part.isdigit() else 0
+        await _render_groups_index(query, context, page=page)
+        return
+    if action.startswith("group_detail:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        _, _, chat_part = action.partition(":")
+        if not chat_part.lstrip("-").isdigit():
+            await query.answer("Grupo inválido.", show_alert=True)
+            return
+        chat_id = int(chat_part)
+        await _render_group_detail(update, query, context, chat_id)
+        return
+    if action.startswith("group_set_category:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        _, _, chat_part = action.partition(":")
+        if not chat_part.lstrip("-").isdigit():
+            await query.answer("Grupo inválido.", show_alert=True)
+            return
+        chat_id = int(chat_part)
+        await _render_group_category_selector(query, chat_id, page=0)
+        return
+    if action.startswith("group_categories_page:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        parts = action.split(":")
+        if len(parts) != 3 or not parts[1].lstrip("-").isdigit() or not parts[2].isdigit():
+            await query.answer("Página inválida.", show_alert=True)
+            return
+        chat_id = int(parts[1])
+        page = int(parts[2])
+        await _render_group_category_selector(query, chat_id, page=page)
+        return
+    if action.startswith("group_choose_category:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        parts = action.split(":")
+        if len(parts) != 3 or not parts[1].lstrip("-").isdigit() or not parts[2].isdigit():
+            await query.answer("Seleção inválida.", show_alert=True)
+            return
+        chat_id = int(parts[1])
+        category_id = int(parts[2])
+        async with get_session() as session:
+            group_service = GroupService(GroupRepository(session))
+            category_service = CategoryService(CategoryRepository(session))
+            try:
+                await category_service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.answer("Categoria não encontrada.", show_alert=True)
+                return
+            await group_service.update_category(chat_id=chat_id, category_id=category_id)
+        await query.answer("Categoria vinculada.", show_alert=False)
+        await _render_group_detail(update, query, context, chat_id)
+        return
+    if action.startswith("group_unlink:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        _, _, chat_part = action.partition(":")
+        if not chat_part.lstrip("-").isdigit():
+            await query.answer("Grupo inválido.", show_alert=True)
+            return
+        chat_id = int(chat_part)
+        async with get_session() as session:
+            group_service = GroupService(GroupRepository(session))
+            try:
+                await group_service.update_category(chat_id=chat_id, category_id=None)
+            except NotFoundError:
+                await query.answer("Grupo não encontrado.", show_alert=True)
+                return
+        await query.answer("Grupo desvinculado.", show_alert=False)
+        await _render_group_detail(update, query, context, chat_id)
         return
 
     if action.startswith("viewcats:"):
@@ -1592,9 +1876,8 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "Sem essas permissões, os envios automáticos não funcionarão."
         ),
         "setcategoria": (
-            "Cria uma categoria e o slug usado pelos demais comandos.\n"
-            "Exemplo: `/setcategoria Coroas`\n"
-            "Resposta esperada: `slug=coroas`. Anote para usar nos próximos comandos."
+            "Cria uma categoria em conversa privada e informa o slug.\n"
+            "Depois, dentro do grupo desejado, use `/setcategoria <slug>` (bot e usuário precisam ser admins) para vincular o grupo à categoria."
         ),
         "addcopy": (
             "Registra textos (copies) ligados à categoria.\n"
