@@ -144,6 +144,20 @@ class CategoryRepository:
             raise NotFoundError(f"Button id {button_id} not found.")
         return button
 
+    async def delete_copy(self, copy_id: int) -> None:
+        copy = await self.session.get(Copy, copy_id)
+        if not copy:
+            raise NotFoundError(f"Copy id {copy_id} not found.")
+        await self.session.delete(copy)
+        await self.session.flush()
+
+    async def delete_button(self, button_id: int) -> None:
+        button = await self.session.get(Button, button_id)
+        if not button:
+            raise NotFoundError(f"Button id {button_id} not found.")
+        await self.session.delete(button)
+        await self.session.flush()
+
     async def update_welcome(
         self,
         category_id: int,

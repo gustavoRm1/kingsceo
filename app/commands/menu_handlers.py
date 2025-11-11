@@ -368,6 +368,10 @@ def _build_welcome_panel_keyboard(category: models.CategoryDTO) -> InlineKeyboar
             InlineKeyboardButton("✏️ Editar copy", callback_data=f"{MENU_PREFIX}welcome_edit_copy:{category.id}"),
         ],
         [
+            InlineKeyboardButton("🗑️ Excluir copy", callback_data=f"{MENU_PREFIX}welcome_delete_copy:{category.id}"),
+            InlineKeyboardButton("🗑️ Excluir botão", callback_data=f"{MENU_PREFIX}welcome_delete_button:{category.id}"),
+        ],
+        [
             InlineKeyboardButton("🆕 Criar botão", callback_data=f"{MENU_PREFIX}welcome_create_button:{category.id}"),
             InlineKeyboardButton("✏️ Editar botões", callback_data=f"{MENU_PREFIX}welcome_edit_button:{category.id}"),
         ],
@@ -385,7 +389,13 @@ def _build_welcome_panel_keyboard(category: models.CategoryDTO) -> InlineKeyboar
 async def _render_welcome_panel(update: Update, query, context: ContextTypes.DEFAULT_TYPE, category: models.CategoryDTO) -> None:
     text = _build_welcome_panel_text(category)
     keyboard = _build_welcome_panel_keyboard(category)
-    message = await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
+    try:
+        message = await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
+    except BadRequest:
+        chat = query.message.chat if query.message else update.effective_chat
+        if chat:
+            await _refresh_welcome_panel(context, category.id, chat=chat)
+        return
     if message:
         chat_id = message.chat_id if hasattr(message, "chat_id") else (query.message.chat_id if query.message else None)
         if chat_id is not None:
@@ -514,6 +524,54 @@ async def _start_edit_button_flow(query, context: ContextTypes.DEFAULT_TYPE, cat
     context.user_data[STATE_KEY] = state
     await query.message.reply_text(
         "Selecione o botão que deseja editar:",
+        reply_markup=InlineKeyboardMarkup(rows),
+    )
+
+async def _start_delete_copy_flow(query, context: ContextTypes.DEFAULT_TYPE, category: models.CategoryDTO, *, return_to: str | None = None) -> None:
+    copies = list(category.copies or [])
+    if not copies:
+        await query.answer("Nenhuma copy cadastrada.", show_alert=True)
+        return
+    rows: list[list[InlineKeyboardButton]] = []
+    for copy in copies:
+        label = (copy.text[:40] + ("..." if len(copy.text) > 40 else "")).replace("`", "´")
+        rows.append(
+            [InlineKeyboardButton(label, callback_data=f"{MENU_PREFIX}cat_delete_copy_select:{category.id}:{copy.id}")]
+        )
+    rows.append([InlineKeyboardButton("⬅️ Cancelar", callback_data=f"{MENU_PREFIX}back")])
+    state = {"action": "deletecopy_select", "category_id": category.id}
+    if return_to:
+        state["return_to"] = return_to
+    context.user_data[STATE_KEY] = state
+    await query.message.reply_text(
+        "Selecione a copy que deseja remover:",
+        reply_markup=InlineKeyboardMarkup(rows),
+    )
+
+
+async def _start_delete_button_flow(query, context: ContextTypes.DEFAULT_TYPE, category: models.CategoryDTO, *, return_to: str | None = None) -> None:
+    buttons = list(category.buttons or [])
+    if not buttons:
+        await query.answer("Nenhum botão cadastrado.", show_alert=True)
+        return
+    rows: list[list[InlineKeyboardButton]] = []
+    for button in buttons:
+        label = button.label.replace("`", "´")
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    f"{label} → {button.url}",
+                    callback_data=f"{MENU_PREFIX}cat_delete_button_select:{category.id}:{button.id}",
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton("⬅️ Cancelar", callback_data=f"{MENU_PREFIX}back")])
+    state = {"action": "deletebutton_select", "category_id": category.id}
+    if return_to:
+        state["return_to"] = return_to
+    context.user_data[STATE_KEY] = state
+    await query.message.reply_text(
+        "Selecione o botão que deseja remover:",
         reply_markup=InlineKeyboardMarkup(rows),
     )
 
@@ -758,6 +816,36 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             reply_markup=None,
         )
         return
+    if action.startswith("cat_delete_copy_select:"):
+        pending = context.user_data.get(STATE_KEY) or {}
+        if pending.get("action") != "deletecopy_select":
+            await query.answer("Fluxo expirado.", show_alert=True)
+            return
+        parts = action.split(":")
+        if len(parts) != 3 or not parts[1].isdigit() or not parts[2].isdigit():
+            await query.answer("Copy inválida.", show_alert=True)
+            return
+        category_id = int(parts[1])
+        copy_id = int(parts[2])
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            try:
+                category = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.answer("Categoria não encontrada.", show_alert=True)
+                return
+            copy_obj = next((c for c in category.copies or [] if c.id == copy_id), None)
+            if not copy_obj:
+                await query.answer("Copy não encontrada.", show_alert=True)
+                return
+            await service.delete_copy(copy_id)
+        context.user_data.pop(STATE_KEY, None)
+        await query.answer("Copy removida.", show_alert=False)
+        chat = query.message.chat if query.message else update.effective_chat
+        if chat:
+            await _refresh_welcome_panel(context, category_id, chat=chat)
+        await query.edit_message_text("Copy removida.")
+        return
 
     if action.startswith("cat_create_button:"):
         if not _is_admin(update):
@@ -834,6 +922,36 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "Envie o novo label ou `/skip` para manter.",
             parse_mode="Markdown",
         )
+        return
+    if action.startswith("cat_delete_button_select:"):
+        pending = context.user_data.get(STATE_KEY) or {}
+        if pending.get("action") != "deletebutton_select":
+            await query.answer("Fluxo expirado.", show_alert=True)
+            return
+        parts = action.split(":")
+        if len(parts) != 3 or not parts[1].isdigit() or not parts[2].isdigit():
+            await query.answer("Botão inválido.", show_alert=True)
+            return
+        category_id = int(parts[1])
+        button_id = int(parts[2])
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            try:
+                category = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.answer("Categoria não encontrada.", show_alert=True)
+                return
+            button = next((b for b in category.buttons or [] if b.id == button_id), None)
+            if not button:
+                await query.answer("Botão não encontrado.", show_alert=True)
+                return
+            await service.delete_button(button_id)
+        context.user_data.pop(STATE_KEY, None)
+        await query.answer("Botão removido.", show_alert=False)
+        chat = query.message.chat if query.message else update.effective_chat
+        if chat:
+            await _refresh_welcome_panel(context, category_id, chat=chat)
+        await query.edit_message_text("Botão removido.")
         return
 
     if action.startswith("randmedia:"):
@@ -1097,6 +1215,24 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 return
         await _start_edit_copy_flow(query, context, category, return_to="welcome")
         return
+    if action.startswith("welcome_delete_copy:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            try:
+                category = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.answer("Categoria não encontrada.", show_alert=True)
+                return
+        await _start_delete_copy_flow(query, context, category, return_to="welcome")
+        return
     if action.startswith("welcome_create_button:"):
         if not _is_admin(update):
             await query.answer("Acesso restrito a administradores.", show_alert=True)
@@ -1132,6 +1268,24 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 await query.answer("Categoria não encontrada.", show_alert=True)
                 return
         await _start_edit_button_flow(query, context, category, return_to="welcome")
+        return
+    if action.startswith("welcome_delete_button:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            try:
+                category = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.answer("Categoria não encontrada.", show_alert=True)
+                return
+        await _start_delete_button_flow(query, context, category, return_to="welcome")
         return
 
     if action.startswith("welcome_cat:"):

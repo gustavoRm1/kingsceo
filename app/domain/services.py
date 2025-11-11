@@ -94,6 +94,12 @@ class CategoryService:
         button = await self.repo.update_button(button_id, label=label, url=url, weight=weight)
         return models.ButtonDTO.model_validate(button)
 
+    async def delete_copy(self, copy_id: int) -> None:
+        await self.repo.delete_copy(copy_id)
+
+    async def delete_button(self, button_id: int) -> None:
+        await self.repo.delete_button(button_id)
+
     async def set_spoiler(self, category_id: int, *, enabled: bool) -> models.CategoryDTO:
         await self.repo.set_spoiler(category_id, enabled=enabled)
         category = await self.repo.get_by_id(category_id)
@@ -110,7 +116,7 @@ class CategoryService:
         use_random_copy: bool | None = None,
         use_random_media: bool | None = None,
     ) -> models.CategoryDTO:
-        category = await self.repo.update_welcome(
+        await self.repo.update_welcome(
             category_id,
             mode=mode,
             text=text,
@@ -119,6 +125,7 @@ class CategoryService:
             use_random_copy=use_random_copy,
             use_random_media=use_random_media,
         )
+        category = await self.repo.get_by_id(category_id)
         return models.CategoryDTO.model_validate(category)
 
     async def random_payload(
