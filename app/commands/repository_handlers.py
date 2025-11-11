@@ -5,6 +5,7 @@ import contextlib
 from telegram import Update
 from telegram.constants import ChatMemberStatus, ChatType
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
+from telegram.error import TelegramError
 
 from app.core.logging import get_logger
 from app.domain.repositories import CategoryRepository, MediaRepositoryMapRepository
@@ -55,25 +56,31 @@ async def repository_media_handler(update: Update, context: ContextTypes.DEFAULT
         category_service = CategoryService(category_repo)
         category = await category_service.get_category_by_id(mapping.category_id)
 
+        authorized = False
         if user:
-            member = await context.bot.get_chat_member(chat.id, user.id)
-            if member.status not in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER}:
-                logger.info(
-                    "repository.media.skip_not_admin",
+            try:
+                member = await context.bot.get_chat_member(chat.id, user.id)
+                authorized = member.status in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER}
+                if not authorized:
+                    logger.info(
+                        "repository.media.skip_not_admin",
+                        chat_id=chat.id,
+                        category=category.slug,
+                        user_id=user.id,
+                        status=member.status,
+                    )
+            except TelegramError as exc:
+                authorized = True
+                logger.warning(
+                    "repository.media.admin_check_failed",
                     chat_id=chat.id,
                     category=category.slug,
                     user_id=user.id,
+                    error=str(exc),
                 )
-                return
-        elif sender_chat and sender_chat.id == chat.id:
-            # Anonymous owner/admin posting as the group
-            pass
-        else:
-            logger.info(
-                "repository.media.skip_no_sender_admin",
-                chat_id=chat.id,
-                category=category.slug,
-            )
+        elif sender_chat:
+            authorized = True
+        if not authorized:
             return
 
         media_type, file_id, caption = media_payload
@@ -100,11 +107,19 @@ async def repository_media_handler(update: Update, context: ContextTypes.DEFAULT
             media_type=media_type,
             media_id=media_dto.id,
         )
-        await message.reply_text(
-            f"✅ Mídia registrada para a categoria `{category.slug}`.",
-            parse_mode="Markdown",
-            quote=True,
-        )
+        try:
+            await message.reply_text(
+                f"✅ Mídia registrada para a categoria `{category.slug}`.",
+                parse_mode="Markdown",
+                quote=True,
+            )
+        except TelegramError as exc:
+            logger.warning(
+                "repository.media.ack_failed",
+                chat_id=chat.id,
+                category=category.slug,
+                error=str(exc),
+            )
 
 
 async def service_cleanup_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
