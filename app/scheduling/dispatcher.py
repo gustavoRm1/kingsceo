@@ -82,6 +82,13 @@ class DispatchEngine:
         try:
             if payload.media:
                 caption = payload.media.caption or (payload.message.text if payload.message else None)
+                logger.info(
+                    "dispatch.media",
+                    chat_id=chat_id,
+                    media_type=payload.media.media_type,
+                    has_spoiler=payload.media_spoiler,
+                    media_id=payload.media.id if hasattr(payload.media, "id") else None,
+                )
                 if payload.media.media_type == "photo":
                     await self.application.bot.send_photo(
                         chat_id=chat_id,
