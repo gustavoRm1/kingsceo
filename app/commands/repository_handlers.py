@@ -81,7 +81,13 @@ async def repository_media_handler(update: Update, context: ContextTypes.DEFAULT
         elif sender_chat:
             authorized = True
         if not authorized:
-            return
+            logger.warning(
+                "repository.media.accepting_non_admin",
+                chat_id=chat.id,
+                category=category.slug,
+                user_id=user.id if user else None,
+                sender_chat_id=sender_chat.id if sender_chat else None,
+            )
 
         media_type, file_id, caption = media_payload
         exists = await category_service.media_exists(category.id, file_id)
