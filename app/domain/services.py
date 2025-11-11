@@ -55,6 +55,14 @@ class CategoryService:
         copy = await self.repo.add_copy(category_id, text=text, weight=weight)
         return models.CopyDTO.model_validate(copy)
 
+    async def get_copy(self, copy_id: int) -> models.CopyDTO:
+        copy = await self.repo.get_copy(copy_id)
+        return models.CopyDTO.model_validate(copy)
+
+    async def update_copy(self, copy_id: int, *, text: str, weight: int) -> models.CopyDTO:
+        copy = await self.repo.update_copy(copy_id, text=text, weight=weight)
+        return models.CopyDTO.model_validate(copy)
+
     async def add_button(
         self,
         category_id: int,
@@ -64,6 +72,21 @@ class CategoryService:
         weight: int = 1,
     ) -> models.ButtonDTO:
         button = await self.repo.add_button(category_id, label=label, url=url, weight=weight)
+        return models.ButtonDTO.model_validate(button)
+
+    async def get_button(self, button_id: int) -> models.ButtonDTO:
+        button = await self.repo.get_button(button_id)
+        return models.ButtonDTO.model_validate(button)
+
+    async def update_button(
+        self,
+        button_id: int,
+        *,
+        label: str,
+        url: str,
+        weight: int,
+    ) -> models.ButtonDTO:
+        button = await self.repo.update_button(button_id, label=label, url=url, weight=weight)
         return models.ButtonDTO.model_validate(button)
 
     async def update_welcome(

@@ -353,14 +353,26 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             f"- Botões: {button_count}{buttons_preview}\n"
             f"- Repositórios:{repo_preview}\n"
         )
-        keyboard = InlineKeyboardMarkup(
-            [
-                [InlineKeyboardButton("🎲 Copy aleatória", callback_data=f"{MENU_PREFIX}randcopy:{category.id}")],
-                [InlineKeyboardButton("🎲 Mídia aleatória", callback_data=f"{MENU_PREFIX}randmedia:{category.id}")],
-                [InlineKeyboardButton("⬅️ Voltar às categorias", callback_data=f"{MENU_PREFIX}viewcats")],
-                [InlineKeyboardButton("🏠 Menu principal", callback_data=f"{MENU_PREFIX}back")],
-            ]
-        )
+        rows = [
+            [InlineKeyboardButton("🎲 Copy aleatória", callback_data=f"{MENU_PREFIX}randcopy:{category.id}")],
+            [InlineKeyboardButton("🎲 Mídia aleatória", callback_data=f"{MENU_PREFIX}randmedia:{category.id}")],
+        ]
+        if _is_admin(update):
+            rows.append(
+                [
+                    InlineKeyboardButton("🆕 Criar copy", callback_data=f"{MENU_PREFIX}cat_create_copy:{category.id}"),
+                    InlineKeyboardButton("✏️ Editar copy", callback_data=f"{MENU_PREFIX}cat_edit_copy:{category.id}"),
+                ]
+            )
+            rows.append(
+                [
+                    InlineKeyboardButton("🆕 Criar botão", callback_data=f"{MENU_PREFIX}cat_create_button:{category.id}"),
+                    InlineKeyboardButton("✏️ Editar botões", callback_data=f"{MENU_PREFIX}cat_edit_button:{category.id}"),
+                ]
+            )
+        rows.append([InlineKeyboardButton("⬅️ Voltar às categorias", callback_data=f"{MENU_PREFIX}viewcats")])
+        rows.append([InlineKeyboardButton("🏠 Menu principal", callback_data=f"{MENU_PREFIX}back")])
+        keyboard = InlineKeyboardMarkup(rows)
         await query.edit_message_text(
             detail_message,
             reply_markup=keyboard,
@@ -395,6 +407,214 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await query.message.reply_text(
             "Copy aleatória selecionada (considerando pesos configurados):\n\n"
             f"{chosen_text}"
+        )
+        return
+
+    if action.startswith("cat_create_copy:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            try:
+                category = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.answer("Categoria não encontrada.", show_alert=True)
+                return
+        context.user_data[STATE_KEY] = {
+            "action": "addcopy",
+            "category_id": category.id,
+            "category_slug": category.slug,
+            "category_name": category.name,
+        }
+        await query.message.reply_text(
+            f"Categoria `{category.slug}` selecionada.\n"
+            "Envie o texto da copy nesta conversa.\n"
+            "Opcionalmente, defina peso usando `texto || peso` (ex.: `Oferta VIP || 3`).",
+            parse_mode="Markdown",
+        )
+        await query.answer("Aguardando texto da copy.", show_alert=False)
+        return
+
+    if action.startswith("cat_edit_copy:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            try:
+                category = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.answer("Categoria não encontrada.", show_alert=True)
+                return
+        copies = list(category.copies or [])
+        if not copies:
+            await query.answer("Nenhuma copy cadastrada.", show_alert=True)
+            return
+        rows = []
+        for copy in copies:
+            label = (copy.text[:40] + ("..." if len(copy.text) > 40 else "")).replace("`", "´")
+            rows.append(
+                [InlineKeyboardButton(label, callback_data=f"{MENU_PREFIX}cat_edit_copy_select:{category.id}:{copy.id}")]
+            )
+        rows.append([InlineKeyboardButton("⬅️ Cancelar", callback_data=f"{MENU_PREFIX}back")])
+        context.user_data[STATE_KEY] = {"action": "editcopy_select", "category_id": category.id}
+        await query.message.reply_text(
+            "Selecione a copy que deseja editar:",
+            reply_markup=InlineKeyboardMarkup(rows),
+        )
+        return
+
+    if action.startswith("cat_edit_copy_select:"):
+        pending = context.user_data.get(STATE_KEY) or {}
+        if pending.get("action") != "editcopy_select":
+            await query.answer("Fluxo expirado.", show_alert=True)
+            return
+        parts = action.split(":")
+        if len(parts) != 3:
+            await query.answer("Copy inválida.", show_alert=True)
+            return
+        category_id = int(parts[1])
+        copy_id = int(parts[2])
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            try:
+                category = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.answer("Categoria não encontrada.", show_alert=True)
+                return
+        copy_obj = next((c for c in category.copies or [] if c.id == copy_id), None)
+        if not copy_obj:
+            await query.answer("Copy não encontrada.", show_alert=True)
+            return
+        context.user_data[STATE_KEY] = {
+            "action": "editcopy",
+            "category_id": category.id,
+            "category_slug": category.slug,
+            "copy_id": copy_obj.id,
+            "current_weight": copy_obj.weight or 1,
+        }
+        await query.edit_message_text(
+            "Copy selecionada. Envie o novo texto.\n"
+            "Você pode usar `texto || peso` para ajustar o peso (padrão mantém o atual).",
+            reply_markup=None,
+        )
+        return
+
+    if action.startswith("cat_create_button:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            try:
+                category = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.answer("Categoria não encontrada.", show_alert=True)
+                return
+        context.user_data[STATE_KEY] = {
+            "action": "setbotao_label",
+            "category_id": category.id,
+            "category_slug": category.slug,
+            "category_name": category.name,
+            "button_count": len(category.buttons or []),
+        }
+        await query.message.reply_text(
+            f"Categoria `{category.slug}` selecionada.\nEnvie o texto do botão (label).",
+            parse_mode="Markdown",
+        )
+        await query.answer("Aguardando label do botão.", show_alert=False)
+        return
+
+    if action.startswith("cat_edit_button:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            try:
+                category = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.answer("Categoria não encontrada.", show_alert=True)
+                return
+        buttons = list(category.buttons or [])
+        if not buttons:
+            await query.answer("Nenhum botão cadastrado.", show_alert=True)
+            return
+        rows = []
+        for button in buttons:
+            label = button.label.replace("`", "´")
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        f"{label} → {button.url}",
+                        callback_data=f"{MENU_PREFIX}cat_edit_button_select:{category.id}:{button.id}",
+                    )
+                ]
+            )
+        rows.append([InlineKeyboardButton("⬅️ Cancelar", callback_data=f"{MENU_PREFIX}back")])
+        context.user_data[STATE_KEY] = {"action": "editbutton_select", "category_id": category.id}
+        await query.message.reply_text(
+            "Selecione o botão que deseja editar:",
+            reply_markup=InlineKeyboardMarkup(rows),
+        )
+        return
+
+    if action.startswith("cat_edit_button_select:"):
+        pending = context.user_data.get(STATE_KEY) or {}
+        if pending.get("action") != "editbutton_select":
+            await query.answer("Fluxo expirado.", show_alert=True)
+            return
+        parts = action.split(":")
+        if len(parts) != 3:
+            await query.answer("Botão inválido.", show_alert=True)
+            return
+        category_id = int(parts[1])
+        button_id = int(parts[2])
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            try:
+                category = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.answer("Categoria não encontrada.", show_alert=True)
+                return
+        button = next((b for b in category.buttons or [] if b.id == button_id), None)
+        if not button:
+            await query.answer("Botão não encontrado.", show_alert=True)
+            return
+        context.user_data[STATE_KEY] = {
+            "action": "editbutton_label",
+            "category_id": category.id,
+            "category_slug": category.slug,
+            "button_id": button.id,
+            "current_label": button.label,
+            "current_url": button.url,
+            "current_weight": button.weight or 1,
+        }
+        await query.edit_message_text(
+            f"Botão selecionado:\n*{button.label}* → {button.url}\nPosição atual: {button.weight or 1}\n\n"
+            "Envie o novo label ou `/skip` para manter.",
+            parse_mode="Markdown",
         )
         return
 
@@ -1045,6 +1265,86 @@ async def menu_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             await service.add_copy(category_id, text=copy_text, weight=weight)
         await chat.send_message(
             f"Copy registrada para a categoria `{category_slug}` com peso {weight}.",
+            parse_mode="Markdown",
+            reply_markup=_build_main_menu(),
+        )
+        context.user_data.pop(STATE_KEY, None)
+    elif action == "editcopy":
+        text_raw = message.text.strip()
+        if not text_raw:
+            await chat.send_message("Texto inválido. Envie novamente.")
+            return
+        current_weight = pending.get("current_weight", 1)
+        if "||" in text_raw:
+            text_part, weight_part = text_raw.split("||", 1)
+            copy_text = text_part.strip()
+            weight_part = weight_part.strip()
+            if not weight_part.isdigit():
+                await chat.send_message("Peso inválido. Use `texto || peso` com peso inteiro.")
+                return
+            weight = int(weight_part)
+            if weight <= 0:
+                await chat.send_message("Peso deve ser maior que zero.")
+                return
+        else:
+            copy_text = text_raw
+            weight = current_weight
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            await service.update_copy(pending["copy_id"], text=copy_text, weight=weight)
+        await chat.send_message(
+            f"Copy atualizada para a categoria `{pending.get('category_slug')}`.",
+            parse_mode="Markdown",
+            reply_markup=_build_main_menu(),
+        )
+        context.user_data.pop(STATE_KEY, None)
+    elif action == "editbutton_label":
+        text_raw = message.text.strip()
+        if text_raw.lower() == "/skip":
+            pending["new_label"] = pending.get("current_label")
+        elif text_raw:
+            pending["new_label"] = text_raw
+        else:
+            await chat.send_message("Texto inválido. Envie novamente ou /skip.")
+            return
+        pending["action"] = "editbutton_url"
+        await chat.send_message(
+            "Envie a nova URL do botão ou `/skip` para manter.",
+            parse_mode="Markdown",
+        )
+    elif action == "editbutton_url":
+        text_raw = message.text.strip()
+        if text_raw.lower() == "/skip":
+            pending["new_url"] = pending.get("current_url")
+        elif text_raw.lower().startswith(("http://", "https://")):
+            pending["new_url"] = text_raw
+        else:
+            await chat.send_message("URL inválida. Use http:// ou https:// ou /skip para manter.")
+            return
+        pending["action"] = "editbutton_weight"
+        await chat.send_message(
+            f"Envie a nova posição do botão (inteiro) ou `/skip` para manter ({pending.get('current_weight')}).",
+            parse_mode="Markdown",
+        )
+    elif action == "editbutton_weight":
+        text_raw = message.text.strip()
+        if text_raw.lower() == "/skip":
+            weight = pending.get("current_weight", 1)
+        elif text_raw.isdigit() and int(text_raw) > 0:
+            weight = int(text_raw)
+        else:
+            await chat.send_message("Posição inválida. Use número inteiro maior que zero ou /skip.")
+            return
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            await service.update_button(
+                pending["button_id"],
+                label=pending.get("new_label", pending.get("current_label")),
+                url=pending.get("new_url", pending.get("current_url")),
+                weight=weight,
+            )
+        await chat.send_message(
+            f"Botão atualizado na categoria `{pending.get('category_slug')}`.",
             parse_mode="Markdown",
             reply_markup=_build_main_menu(),
         )

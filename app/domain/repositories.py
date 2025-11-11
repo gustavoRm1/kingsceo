@@ -100,10 +100,48 @@ class CategoryRepository:
         await self.session.flush()
         return copy
 
+    async def get_copy(self, copy_id: int) -> Copy:
+        copy = await self.session.get(Copy, copy_id)
+        if not copy:
+            raise NotFoundError(f"Copy id {copy_id} not found.")
+        return copy
+
+    async def update_copy(self, copy_id: int, *, text: str, weight: int) -> Copy:
+        stmt = (
+            update(Copy)
+            .where(Copy.id == copy_id)
+            .values(text=text, weight=weight)
+            .returning(Copy)
+        )
+        result = await self.session.execute(stmt)
+        copy = result.scalar_one_or_none()
+        if not copy:
+            raise NotFoundError(f"Copy id {copy_id} not found.")
+        return copy
+
     async def add_button(self, category_id: int, *, label: str, url: str, weight: int) -> Button:
         button = Button(category_id=category_id, label=label, url=url, weight=weight)
         self.session.add(button)
         await self.session.flush()
+        return button
+
+    async def get_button(self, button_id: int) -> Button:
+        button = await self.session.get(Button, button_id)
+        if not button:
+            raise NotFoundError(f"Button id {button_id} not found.")
+        return button
+
+    async def update_button(self, button_id: int, *, label: str, url: str, weight: int) -> Button:
+        stmt = (
+            update(Button)
+            .where(Button.id == button_id)
+            .values(label=label, url=url, weight=weight)
+            .returning(Button)
+        )
+        result = await self.session.execute(stmt)
+        button = result.scalar_one_or_none()
+        if not button:
+            raise NotFoundError(f"Button id {button_id} not found.")
         return button
 
     async def update_welcome(
