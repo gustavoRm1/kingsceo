@@ -399,6 +399,32 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 return
         await _render_category_detail(update, query, context, category)
         return
+    if action.startswith("cat_spoiler:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            try:
+                current = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.answer("Categoria não encontrada.", show_alert=True)
+                return
+            await service.set_spoiler(category_id, enabled=not current.use_spoiler_media)
+            refreshed = await service.get_category_by_id(category_id)
+        await query.answer(
+            "Spoiler nas mídias ativado."
+            if not current.use_spoiler_media
+            else "Spoiler nas mídias desativado.",
+            show_alert=False,
+        )
+        await _render_category_detail(update, query, context, refreshed)
+        return
     if action.startswith("randcopy:"):
         _, _, id_part = action.partition(":")
         if not id_part.isdigit():
