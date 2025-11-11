@@ -4,7 +4,7 @@ import re
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatMemberStatus, ChatType
-from telegram.ext import Application, CommandHandler, ContextTypes, MyChatMemberHandler, filters
+from telegram.ext import Application, ChatMemberHandler, CommandHandler, ContextTypes, filters
 
 from app.core.config import get_settings
 from app.core.exceptions import NotFoundError
@@ -297,5 +297,5 @@ def register_admin_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("setbotao", cmd_setbotao, filters=filters.ChatType.PRIVATE))
     application.add_handler(CommandHandler("setboasvindas", cmd_setboasvindas, filters=filters.ChatType.PRIVATE))
     application.add_handler(CommandHandler("setrepositorio", cmd_setrepositorio))
-    application.add_handler(MyChatMemberHandler(my_chat_member_handler))
+    application.add_handler(ChatMemberHandler(my_chat_member_handler))
 
