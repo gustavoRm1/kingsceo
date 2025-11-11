@@ -20,7 +20,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     op.add_column(
-        "\"group\"",
+        "group",
         sa.Column("clean_service_messages", sa.Boolean(), server_default=sa.text("false"), nullable=False),
     )
     op.add_column(
@@ -31,5 +31,5 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_column("media_repository", "clean_service_messages")
-    op.drop_column("\"group\"", "clean_service_messages")
+    op.drop_column("group", "clean_service_messages")
 
