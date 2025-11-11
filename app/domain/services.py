@@ -40,6 +40,7 @@ class CategoryService:
         file_id: str,
         caption: str | None,
         weight: int = 1,
+        has_spoiler: bool = False,
     ) -> models.MediaDTO:
         media = await self.repo.add_media(
             category_id,
@@ -47,6 +48,7 @@ class CategoryService:
             file_id=file_id,
             caption=caption,
             weight=weight,
+            has_spoiler=has_spoiler,
         )
         return models.MediaDTO.model_validate(media)
 
@@ -176,7 +178,10 @@ class CategoryService:
             media=media_dto,
             message=copy_dto,
             buttons=buttons,
-            media_spoiler=category.use_spoiler_media,
+            media_spoiler=(
+                category.use_spoiler_media
+                or (media_dto.has_spoiler if media_dto else False)
+            ),
         )
 
     async def update_schedule(self, category_id: int, *, interval_minutes: int | None) -> models.CategoryDTO:

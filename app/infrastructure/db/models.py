@@ -63,6 +63,7 @@ class Media(Base):
     file_id: Mapped[str] = mapped_column(Text, nullable=False)
     caption: Mapped[str | None] = mapped_column(Text, nullable=True)
     weight: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    has_spoiler: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
     category: Mapped["Category"] = relationship("Category", back_populates="media_items")

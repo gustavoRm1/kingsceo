@@ -36,6 +36,7 @@ async def repository_media_handler(update: Update, context: ContextTypes.DEFAULT
     message = update.effective_message
     user = update.effective_user
     sender_chat = message.sender_chat
+    has_spoiler = bool(getattr(message, "has_media_spoiler", False))
 
     if not chat or not message:
         return
@@ -105,6 +106,7 @@ async def repository_media_handler(update: Update, context: ContextTypes.DEFAULT
             file_id=file_id,
             caption=caption,
             weight=1,
+            has_spoiler=has_spoiler,
         )
         logger.info(
             "repository.media.saved",
@@ -112,20 +114,8 @@ async def repository_media_handler(update: Update, context: ContextTypes.DEFAULT
             category=category.slug,
             media_type=media_type,
             media_id=media_dto.id,
+            has_spoiler=has_spoiler,
         )
-        try:
-            await message.reply_text(
-                f"✅ Mídia registrada para a categoria `{category.slug}`.",
-                parse_mode="Markdown",
-                quote=True,
-            )
-        except TelegramError as exc:
-            logger.warning(
-                "repository.media.ack_failed",
-                chat_id=chat.id,
-                category=category.slug,
-                error=str(exc),
-            )
 
 
 async def service_cleanup_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

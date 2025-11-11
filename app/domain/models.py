@@ -26,6 +26,7 @@ class MediaDTO(BaseDTO):
     file_id: str
     caption: str | None
     weight: int
+    has_spoiler: bool = False
     created_at: datetime
 
 

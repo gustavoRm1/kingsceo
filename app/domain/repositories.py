@@ -78,13 +78,23 @@ class CategoryRepository:
             raise AlreadyExistsError(f"Category {name} already exists.") from exc
         return category
 
-    async def add_media(self, category_id: int, *, media_type: str, file_id: str, caption: str | None, weight: int) -> Media:
+    async def add_media(
+        self,
+        category_id: int,
+        *,
+        media_type: str,
+        file_id: str,
+        caption: str | None,
+        weight: int,
+        has_spoiler: bool,
+    ) -> Media:
         media = Media(
             category_id=category_id,
             media_type=media_type,
             file_id=file_id,
             caption=caption,
             weight=weight,
+            has_spoiler=has_spoiler,
         )
         self.session.add(media)
         await self.session.flush()

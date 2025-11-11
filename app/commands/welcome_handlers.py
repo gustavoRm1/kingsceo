@@ -33,9 +33,9 @@ def _choose_media(
     category: models.CategoryDTO,
     *,
     has_repository: bool,
-) -> tuple[str, str, str | None] | None:
+) -> tuple[str, str, str | None, bool] | None:
     """
-    Returns (media_type, file_id, caption)
+    Returns (media_type, file_id, caption, has_spoiler)
     """
     if not has_repository and not category.welcome_media_id:
         return None
@@ -45,9 +45,9 @@ def _choose_media(
         if medias:
             for media in medias:
                 if media.file_id == category.welcome_media_id:
-                    return media.media_type, media.file_id, media.caption
+                    return media.media_type, media.file_id, media.caption, media.has_spoiler
         # fallback assume photo if not found
-        return "photo", category.welcome_media_id, None
+        return "photo", category.welcome_media_id, None, category.use_spoiler_media
 
     if not medias:
         return None
@@ -60,7 +60,7 @@ def _choose_media(
 
     if not selected:
         return None
-    return selected.media_type, selected.file_id, selected.caption
+    return selected.media_type, selected.file_id, selected.caption, selected.has_spoiler
 
 
 def _build_buttons(category: models.CategoryDTO) -> InlineKeyboardMarkup | None:
@@ -133,14 +133,14 @@ async def welcome_chat_member_handler(update: Update, context: ContextTypes.DEFA
     bot = context.bot
     try:
         if category.welcome_mode in {"all", "media"} and media_payload:
-            media_type, file_id, caption = media_payload
+            media_type, file_id, caption, media_spoiler = media_payload
             caption_text = text or caption or ""
             if media_type == "photo":
                 await bot.send_photo(
                     chat_id=chat.id,
                     photo=file_id,
                     caption=caption_text or None,
-                    has_spoiler=category.use_spoiler_media,
+                    has_spoiler=category.use_spoiler_media or media_spoiler,
                     reply_markup=buttons,
                 )
             elif media_type == "video":
@@ -148,7 +148,7 @@ async def welcome_chat_member_handler(update: Update, context: ContextTypes.DEFA
                     chat_id=chat.id,
                     video=file_id,
                     caption=caption_text or None,
-                    has_spoiler=category.use_spoiler_media,
+                    has_spoiler=category.use_spoiler_media or media_spoiler,
                     reply_markup=buttons,
                 )
             elif media_type == "document":
@@ -163,7 +163,7 @@ async def welcome_chat_member_handler(update: Update, context: ContextTypes.DEFA
                     chat_id=chat.id,
                     animation=file_id,
                     caption=caption_text or None,
-                    has_spoiler=category.use_spoiler_media,
+                    has_spoiler=category.use_spoiler_media or media_spoiler,
                     reply_markup=buttons,
                 )
             else:
