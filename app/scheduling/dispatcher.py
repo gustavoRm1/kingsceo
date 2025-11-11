@@ -11,8 +11,8 @@ from telegram.ext import Application
 from app.core.logging import get_logger
 from app.core.notifications import AdminNotifier
 from app.domain.models import Payload
-from app.domain.repositories import CategoryRepository, GroupRepository
-from app.domain.services import CategoryService, GroupService
+from app.domain.repositories import CategoryRepository, GroupRepository, MediaRepositoryMapRepository
+from app.domain.services import CategoryService, GroupService, MediaRepositoryService
 from app.infrastructure.db.base import get_session
 
 logger = get_logger(__name__)
@@ -41,10 +41,14 @@ class DispatchEngine:
         async with get_session() as session:
             category_service = CategoryService(CategoryRepository(session))
             group_service = GroupService(GroupRepository(session))
+            repo_service = MediaRepositoryService(
+                MediaRepositoryMapRepository(session), CategoryRepository(session)
+            )
             category = await category_service.get_category_by_slug(slug)
+            has_repo = bool(await repo_service.list_by_category(category.id))
             payload = await category_service.random_payload(
                 category.id,
-                allow_media=allow_media,
+                allow_media=allow_media and has_repo,
                 allow_copy=allow_copy,
                 allow_buttons=allow_buttons,
             )
