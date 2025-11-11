@@ -177,12 +177,14 @@ class CategoryService:
 
     async def update_schedule(self, category_id: int, *, interval_minutes: int | None) -> models.CategoryDTO:
         now = datetime.now(timezone.utc)
-        category = await self.repo.update_schedule(category_id, interval_minutes=interval_minutes, now=now)
+        await self.repo.update_schedule(category_id, interval_minutes=interval_minutes, now=now)
+        category = await self.repo.get_by_id(category_id)
         return models.CategoryDTO.model_validate(category)
 
     async def record_dispatch(self, category_id: int, *, dispatched_at: datetime | None = None) -> models.CategoryDTO:
         now = dispatched_at or datetime.now(timezone.utc)
-        category = await self.repo.record_dispatch(category_id, now=now)
+        await self.repo.record_dispatch(category_id, now=now)
+        category = await self.repo.get_by_id(category_id)
         return models.CategoryDTO.model_validate(category)
 
     async def list_due_for_dispatch(self, *, now: datetime | None = None) -> list[models.CategoryDTO]:

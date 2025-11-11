@@ -27,8 +27,7 @@ GROUP_CATEGORY_PAGE_SIZE: Final = 8
 
 def _build_main_menu() -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton("Adicione-me a um grupo", callback_data=f"{MENU_PREFIX}add_to_group")],
-        [InlineKeyboardButton("Criar Categoria)", callback_data=f"{MENU_PREFIX}setcategoria")],
+        [InlineKeyboardButton("Criar Categoria", callback_data=f"{MENU_PREFIX}setcategoria")],
         [InlineKeyboardButton("Categorias", callback_data=f"{MENU_PREFIX}viewcats")],
         [InlineKeyboardButton("Gerenciar Grupos", callback_data=f"{MENU_PREFIX}groups")],
         [InlineKeyboardButton("Adicionar Copy", callback_data=f"{MENU_PREFIX}addcopy")],
