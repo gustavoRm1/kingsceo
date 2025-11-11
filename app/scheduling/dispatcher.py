@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from cachetools import TTLCache
+from io import BytesIO
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatMemberStatus
 from telegram.error import Forbidden
@@ -10,7 +11,7 @@ from telegram.ext import Application
 
 from app.core.logging import get_logger
 from app.core.notifications import AdminNotifier
-from app.domain.models import Payload
+from app.domain.models import MediaDTO, Payload
 from app.domain.repositories import CategoryRepository, GroupRepository, MediaRepositoryMapRepository
 from app.domain.services import CategoryService, GroupService, MediaRepositoryService
 from app.infrastructure.db.base import get_session
@@ -89,10 +90,11 @@ class DispatchEngine:
                     has_spoiler=payload.media_spoiler,
                     media_id=payload.media.id if hasattr(payload.media, "id") else None,
                 )
+                media_input = await self._resolve_media_input(payload.media, payload.media_spoiler)
                 if payload.media.media_type == "photo":
                     await self.application.bot.send_photo(
                         chat_id=chat_id,
-                        photo=payload.media.file_id,
+                        photo=media_input,
                         caption=caption,
                         has_spoiler=payload.media_spoiler,
                         reply_markup=markup,
@@ -100,7 +102,7 @@ class DispatchEngine:
                 elif payload.media.media_type == "video":
                     await self.application.bot.send_video(
                         chat_id=chat_id,
-                        video=payload.media.file_id,
+                        video=media_input,
                         caption=caption,
                         has_spoiler=payload.media_spoiler,
                         reply_markup=markup,
@@ -115,7 +117,7 @@ class DispatchEngine:
                 elif payload.media.media_type == "animation":
                     await self.application.bot.send_animation(
                         chat_id=chat_id,
-                        animation=payload.media.file_id,
+                        animation=media_input,
                         caption=caption,
                         has_spoiler=payload.media_spoiler,
                         reply_markup=markup,
@@ -143,6 +145,31 @@ class DispatchEngine:
             logger.warning("dispatch.forbidden", chat_id=chat_id)
         except Exception as exc:
             logger.error("dispatch.error", chat_id=chat_id, error=str(exc))
+
+    async def _resolve_media_input(self, media_dto: MediaDTO, apply_spoiler: bool):
+        """Return the appropriate input for sending media, re-uploading when spoiler is required."""
+        if not apply_spoiler or media_dto.media_type not in {"photo", "video", "animation"}:
+            return media_dto.file_id
+        try:
+            telegram_file = await self.application.bot.get_file(media_dto.file_id)
+            data = await telegram_file.download_as_bytearray()
+        except Exception as exc:
+            logger.warning(
+                "dispatch.spoiler.reupload_failed",
+                media_type=media_dto.media_type,
+                error=str(exc),
+            )
+            return media_dto.file_id
+
+        buffer = BytesIO(data)
+        buffer.seek(0)
+        filename_map = {
+            "photo": "spoiler.jpg",
+            "video": "spoiler.mp4",
+            "animation": "spoiler.mp4",
+        }
+        buffer.name = filename_map.get(media_dto.media_type, "spoiler.bin")
+        return buffer
 
     async def _ensure_admin(self, chat_id: int) -> bool:
         if chat_id in self._admin_cache:
