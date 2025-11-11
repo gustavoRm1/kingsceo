@@ -6,7 +6,7 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "20251111_0007_category_schedule"
+revision: str = "20251111_0007"
 down_revision: str = "20251111_0006"
 branch_labels: Sequence[str] | None = None
 depends_on: Sequence[str] | None = None
