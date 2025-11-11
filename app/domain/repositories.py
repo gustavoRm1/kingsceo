@@ -95,6 +95,11 @@ class CategoryRepository:
         result = await self.session.scalar(stmt)
         return result is not None
 
+    async def list_media_items(self, category_id: int) -> Sequence[Media]:
+        stmt = select(Media).where(Media.category_id == category_id)
+        result = await self.session.scalars(stmt)
+        return result.all()
+
     async def add_copy(self, category_id: int, *, text: str, weight: int) -> Copy:
         copy = Copy(category_id=category_id, text=text, weight=weight)
         self.session.add(copy)

@@ -142,14 +142,18 @@ class CategoryService:
         else:
             category = await self.repo.get_by_slug(category_ref)
 
+        media_items = list(category.media_items or [])
+        if allow_media and not media_items:
+            media_items = list(await self.repo.list_media_items(category.id))
+
         media_dto = None
-        if allow_media and category.media_items:
+        if allow_media and media_items:
             if category.use_random_media:
-                media_choice = weighted_choice([(m, m.weight or 1) for m in category.media_items])
+                media_choice = weighted_choice([(m, m.weight or 1) for m in media_items])
                 if media_choice:
                     media_dto = models.MediaDTO.model_validate(media_choice)
             else:
-                media_dto = models.MediaDTO.model_validate(category.media_items[0])
+                media_dto = models.MediaDTO.model_validate(media_items[0])
 
         copy_dto = None
         if allow_copy and category.copies:

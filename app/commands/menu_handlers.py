@@ -251,7 +251,16 @@ async def _render_category_detail(update: Update, query, context: ContextTypes.D
 
     copy_count = len(category.copies or [])
     button_count = len(category.buttons or [])
-    media_count = len(category.media_items or [])
+    media_items = list(category.media_items or [])
+    if not media_items:
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            refreshed = await service.get_category_by_id(category.id)
+            media_items = list(refreshed.media_items or [])
+            category = refreshed
+            copy_count = len(category.copies or [])
+            button_count = len(category.buttons or [])
+    media_count = len(media_items)
     copy_mode_label = "🔁 aleatória" if category.use_random_copy else "➡️ sequencial"
     media_mode_label = "🔁 aleatória" if category.use_random_media else "➡️ sequencial"
     copies_preview = ""
