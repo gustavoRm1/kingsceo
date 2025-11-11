@@ -207,7 +207,7 @@ async def _show_welcome_summary(target, context, category, state, *, edit: bool 
         for button_id in buttons_selected:
             button = button_map.get(button_id)
             if button:
-            lines.append(f"- {button.label.replace('`', '´')} → {button.url}")
+                lines.append(f"- {button.label.replace('`', '´')} → {button.url}")
         if lines:
             buttons_desc = "\n".join(lines)
 
