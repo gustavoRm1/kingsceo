@@ -34,6 +34,7 @@ async def repository_media_handler(update: Update, context: ContextTypes.DEFAULT
     chat = update.effective_chat
     message = update.effective_message
     user = update.effective_user
+    sender_chat = message.sender_chat
 
     if not chat or not message:
         return
@@ -57,7 +58,23 @@ async def repository_media_handler(update: Update, context: ContextTypes.DEFAULT
         if user:
             member = await context.bot.get_chat_member(chat.id, user.id)
             if member.status not in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER}:
+                logger.info(
+                    "repository.media.skip_not_admin",
+                    chat_id=chat.id,
+                    category=category.slug,
+                    user_id=user.id,
+                )
                 return
+        elif sender_chat and sender_chat.id == chat.id:
+            # Anonymous owner/admin posting as the group
+            pass
+        else:
+            logger.info(
+                "repository.media.skip_no_sender_admin",
+                chat_id=chat.id,
+                category=category.slug,
+            )
+            return
 
         media_type, file_id, caption = media_payload
         exists = await category_service.media_exists(category.id, file_id)
