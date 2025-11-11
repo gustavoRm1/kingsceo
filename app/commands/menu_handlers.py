@@ -425,6 +425,34 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         await _render_category_detail(update, query, context, refreshed)
         return
+    if action.startswith("cat_repo_toggle:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Repositório inválido.", show_alert=True)
+            return
+        mapping_id = int(id_part)
+        async with get_session() as session:
+            mapping_repo = MediaRepositoryMapRepository(session)
+            category_repo = CategoryRepository(session)
+            repo_service = MediaRepositoryService(mapping_repo, category_repo)
+            mapping = await repo_service.get_mapping_by_id(mapping_id)
+            if not mapping:
+                await query.answer("Repositório não encontrado.", show_alert=True)
+                return
+            updated_mapping = await repo_service.set_cleanup(mapping_id, enabled=not mapping.clean_service_messages)
+            category_service = CategoryService(category_repo)
+            category = await category_service.get_category_by_id(updated_mapping.category_id)
+        await query.answer(
+            "Mensagens de serviço serão apagadas automaticamente."
+            if not mapping.clean_service_messages
+            else "Mensagens de serviço deixarão de ser apagadas.",
+            show_alert=False,
+        )
+        await _render_category_detail(update, query, context, category)
+        return
     if action.startswith("randcopy:"):
         _, _, id_part = action.partition(":")
         if not id_part.isdigit():
