@@ -17,6 +17,7 @@ from app.infrastructure.db.base import get_session
 MENU_PREFIX: Final = "menu:"
 STATE_KEY: Final = "menu_pending"
 WELCOME_STATE_KEY: Final = "welcome_state"
+WELCOME_PANEL_CACHE_KEY: Final = "welcome_panels"
 
 
 def _build_main_menu() -> InlineKeyboardMarkup:
@@ -318,6 +319,205 @@ async def _render_category_detail(update: Update, query, context: ContextTypes.D
     )
 
 
+def _store_welcome_panel(context: ContextTypes.DEFAULT_TYPE, *, category_id: int, chat_id: int, message_id: int) -> None:
+    panels = context.user_data.setdefault(WELCOME_PANEL_CACHE_KEY, {})
+    panels[category_id] = {"chat_id": chat_id, "message_id": message_id}
+
+
+def _build_welcome_panel_text(category: models.CategoryDTO) -> str:
+    if category.use_random_copy:
+        copy_desc = "Copy aleatória"
+    elif category.welcome_text:
+        truncated = category.welcome_text[:120]
+        if len(category.welcome_text) > 120:
+            truncated += "..."
+        copy_desc = truncated.replace("`", "´")
+    else:
+        copy_desc = "Nenhuma copy definida"
+
+    if category.use_random_media:
+        media_desc = "Mídia aleatória"
+    elif category.welcome_media_id:
+        media_desc = f"Mídia fixa (`{category.welcome_media_id}`)"
+    else:
+        media_desc = "Mídia desativada"
+
+    buttons_data = category.welcome_buttons or []
+    if isinstance(buttons_data, list):
+        buttons_count = len(buttons_data)
+    elif isinstance(buttons_data, dict):
+        buttons_count = len(buttons_data)
+    else:
+        buttons_count = 0
+
+    return (
+        f"*Configurar boas-vindas*\n"
+        f"Categoria: *{category.name}* (`{category.slug}`)\n"
+        f"- Modo atual: `{category.welcome_mode}`\n"
+        f"- Copy: {copy_desc}\n"
+        f"- Mídia: {media_desc}\n"
+        f"- Botões selecionados: {buttons_count}"
+    )
+
+
+def _build_welcome_panel_keyboard(category: models.CategoryDTO) -> InlineKeyboardMarkup:
+    media_toggle_label = "🎞 Mídia aleatória: ON" if category.use_random_media else "🎞 Mídia aleatória: OFF"
+    rows = [
+        [
+            InlineKeyboardButton("🆕 Criar copy", callback_data=f"{MENU_PREFIX}welcome_create_copy:{category.id}"),
+            InlineKeyboardButton("✏️ Editar copy", callback_data=f"{MENU_PREFIX}welcome_edit_copy:{category.id}"),
+        ],
+        [
+            InlineKeyboardButton("🆕 Criar botão", callback_data=f"{MENU_PREFIX}welcome_create_button:{category.id}"),
+            InlineKeyboardButton("✏️ Editar botões", callback_data=f"{MENU_PREFIX}welcome_edit_button:{category.id}"),
+        ],
+        [
+            InlineKeyboardButton(media_toggle_label, callback_data=f"{MENU_PREFIX}welcome_media_random:{category.id}"),
+            InlineKeyboardButton("🚫 Não usar mídia", callback_data=f"{MENU_PREFIX}welcome_media_disable:{category.id}"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ Voltar", callback_data=f"{MENU_PREFIX}welcome_back:{category.id}"),
+        ],
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
+async def _render_welcome_panel(update: Update, query, context: ContextTypes.DEFAULT_TYPE, category: models.CategoryDTO) -> None:
+    text = _build_welcome_panel_text(category)
+    keyboard = _build_welcome_panel_keyboard(category)
+    message = await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
+    if message:
+        chat_id = message.chat_id if hasattr(message, "chat_id") else (query.message.chat_id if query.message else None)
+        if chat_id is not None:
+            _store_welcome_panel(
+                context,
+                category_id=category.id,
+                chat_id=chat_id,
+                message_id=message.message_id,
+            )
+
+
+async def _refresh_welcome_panel(context: ContextTypes.DEFAULT_TYPE, category_id: int, *, chat) -> None:
+    async with get_session() as session:
+        service = CategoryService(CategoryRepository(session))
+        category = await service.get_category_by_id(category_id)
+    text = _build_welcome_panel_text(category)
+    keyboard = _build_welcome_panel_keyboard(category)
+    panels = context.user_data.get(WELCOME_PANEL_CACHE_KEY, {})
+    panel_info = panels.get(category_id)
+    if panel_info:
+        try:
+            await context.bot.edit_message_text(
+                text=text,
+                chat_id=panel_info["chat_id"],
+                message_id=panel_info["message_id"],
+                parse_mode="Markdown",
+                reply_markup=keyboard,
+            )
+            return
+        except BadRequest:
+            pass
+    sent = await chat.send_message(text, parse_mode="Markdown", reply_markup=keyboard)
+    _store_welcome_panel(context, category_id=category_id, chat_id=sent.chat_id, message_id=sent.message_id)
+
+
+def _prepare_welcome_update_payload(category: models.CategoryDTO) -> dict:
+    return {
+        "mode": category.welcome_mode,
+        "text": category.welcome_text,
+        "media_id": category.welcome_media_id,
+        "buttons": category.welcome_buttons if category.welcome_buttons else None,
+        "use_random_copy": category.use_random_copy,
+        "use_random_media": category.use_random_media,
+    }
+
+
+async def _start_addcopy_flow(query, context: ContextTypes.DEFAULT_TYPE, category: models.CategoryDTO, *, return_to: str | None = None) -> None:
+    state = {
+        "action": "addcopy",
+        "category_id": category.id,
+        "category_slug": category.slug,
+        "category_name": category.name,
+    }
+    if return_to:
+        state["return_to"] = return_to
+    context.user_data[STATE_KEY] = state
+    await query.message.reply_text(
+        f"Categoria `{category.slug}` selecionada.\n"
+        "Envie o texto da copy nesta conversa.\n"
+        "Opcionalmente, defina peso usando `texto || peso` (ex.: `Oferta VIP || 3`).",
+        parse_mode="Markdown",
+    )
+    await query.answer("Aguardando texto da copy.", show_alert=False)
+
+
+async def _start_edit_copy_flow(query, context: ContextTypes.DEFAULT_TYPE, category: models.CategoryDTO, *, return_to: str | None = None) -> None:
+    copies = list(category.copies or [])
+    if not copies:
+        await query.answer("Nenhuma copy cadastrada.", show_alert=True)
+        return
+    rows = []
+    for copy in copies:
+        label = (copy.text[:40] + ("..." if len(copy.text) > 40 else "")).replace("`", "´")
+        rows.append(
+            [InlineKeyboardButton(label, callback_data=f"{MENU_PREFIX}cat_edit_copy_select:{category.id}:{copy.id}")]
+        )
+    rows.append([InlineKeyboardButton("⬅️ Cancelar", callback_data=f"{MENU_PREFIX}back")])
+    state = {"action": "editcopy_select", "category_id": category.id}
+    if return_to:
+        state["return_to"] = return_to
+    context.user_data[STATE_KEY] = state
+    await query.message.reply_text(
+        "Selecione a copy que deseja editar:",
+        reply_markup=InlineKeyboardMarkup(rows),
+    )
+
+
+async def _start_add_button_flow(query, context: ContextTypes.DEFAULT_TYPE, category: models.CategoryDTO, *, return_to: str | None = None) -> None:
+    state = {
+        "action": "setbotao_label",
+        "category_id": category.id,
+        "category_slug": category.slug,
+        "category_name": category.name,
+        "button_count": len(category.buttons or []),
+    }
+    if return_to:
+        state["return_to"] = return_to
+    context.user_data[STATE_KEY] = state
+    await query.message.reply_text(
+        f"Categoria `{category.slug}` selecionada.\nEnvie o texto do botão (label).",
+        parse_mode="Markdown",
+    )
+    await query.answer("Aguardando label do botão.", show_alert=False)
+
+
+async def _start_edit_button_flow(query, context: ContextTypes.DEFAULT_TYPE, category: models.CategoryDTO, *, return_to: str | None = None) -> None:
+    buttons = list(category.buttons or [])
+    if not buttons:
+        await query.answer("Nenhum botão cadastrado.", show_alert=True)
+        return
+    rows = []
+    for button in buttons:
+        label = button.label.replace("`", "´")
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    f"{label} → {button.url}",
+                    callback_data=f"{MENU_PREFIX}cat_edit_button_select:{category.id}:{button.id}",
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton("⬅️ Cancelar", callback_data=f"{MENU_PREFIX}back")])
+    state = {"action": "editbutton_select", "category_id": category.id}
+    if return_to:
+        state["return_to"] = return_to
+    context.user_data[STATE_KEY] = state
+    await query.message.reply_text(
+        "Selecione o botão que deseja editar:",
+        reply_markup=InlineKeyboardMarkup(rows),
+    )
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     chat = update.effective_chat
@@ -500,19 +700,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             except NotFoundError:
                 await query.answer("Categoria não encontrada.", show_alert=True)
                 return
-        context.user_data[STATE_KEY] = {
-            "action": "addcopy",
-            "category_id": category.id,
-            "category_slug": category.slug,
-            "category_name": category.name,
-        }
-        await query.message.reply_text(
-            f"Categoria `{category.slug}` selecionada.\n"
-            "Envie o texto da copy nesta conversa.\n"
-            "Opcionalmente, defina peso usando `texto || peso` (ex.: `Oferta VIP || 3`).",
-            parse_mode="Markdown",
-        )
-        await query.answer("Aguardando texto da copy.", show_alert=False)
+        await _start_addcopy_flow(query, context, category)
         return
 
     if action.startswith("cat_edit_copy:"):
@@ -531,22 +719,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             except NotFoundError:
                 await query.answer("Categoria não encontrada.", show_alert=True)
                 return
-        copies = list(category.copies or [])
-        if not copies:
-            await query.answer("Nenhuma copy cadastrada.", show_alert=True)
-            return
-        rows = []
-        for copy in copies:
-            label = (copy.text[:40] + ("..." if len(copy.text) > 40 else "")).replace("`", "´")
-            rows.append(
-                [InlineKeyboardButton(label, callback_data=f"{MENU_PREFIX}cat_edit_copy_select:{category.id}:{copy.id}")]
-            )
-        rows.append([InlineKeyboardButton("⬅️ Cancelar", callback_data=f"{MENU_PREFIX}back")])
-        context.user_data[STATE_KEY] = {"action": "editcopy_select", "category_id": category.id}
-        await query.message.reply_text(
-            "Selecione a copy que deseja editar:",
-            reply_markup=InlineKeyboardMarkup(rows),
-        )
+        await _start_edit_copy_flow(query, context, category)
         return
 
     if action.startswith("cat_edit_copy_select:"):
@@ -577,6 +750,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "category_slug": category.slug,
             "copy_id": copy_obj.id,
             "current_weight": copy_obj.weight or 1,
+            "return_to": pending.get("return_to"),
         }
         await query.edit_message_text(
             "Copy selecionada. Envie o novo texto.\n"
@@ -601,18 +775,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             except NotFoundError:
                 await query.answer("Categoria não encontrada.", show_alert=True)
                 return
-        context.user_data[STATE_KEY] = {
-            "action": "setbotao_label",
-            "category_id": category.id,
-            "category_slug": category.slug,
-            "category_name": category.name,
-            "button_count": len(category.buttons or []),
-        }
-        await query.message.reply_text(
-            f"Categoria `{category.slug}` selecionada.\nEnvie o texto do botão (label).",
-            parse_mode="Markdown",
-        )
-        await query.answer("Aguardando label do botão.", show_alert=False)
+        await _start_add_button_flow(query, context, category)
         return
 
     if action.startswith("cat_edit_button:"):
@@ -631,27 +794,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             except NotFoundError:
                 await query.answer("Categoria não encontrada.", show_alert=True)
                 return
-        buttons = list(category.buttons or [])
-        if not buttons:
-            await query.answer("Nenhum botão cadastrado.", show_alert=True)
-            return
-        rows = []
-        for button in buttons:
-            label = button.label.replace("`", "´")
-            rows.append(
-                [
-                    InlineKeyboardButton(
-                        f"{label} → {button.url}",
-                        callback_data=f"{MENU_PREFIX}cat_edit_button_select:{category.id}:{button.id}",
-                    )
-                ]
-            )
-        rows.append([InlineKeyboardButton("⬅️ Cancelar", callback_data=f"{MENU_PREFIX}back")])
-        context.user_data[STATE_KEY] = {"action": "editbutton_select", "category_id": category.id}
-        await query.message.reply_text(
-            "Selecione o botão que deseja editar:",
-            reply_markup=InlineKeyboardMarkup(rows),
-        )
+        await _start_edit_button_flow(query, context, category)
         return
 
     if action.startswith("cat_edit_button_select:"):
@@ -684,6 +827,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "current_label": button.label,
             "current_url": button.url,
             "current_weight": button.weight or 1,
+            "return_to": pending.get("return_to"),
         }
         await query.edit_message_text(
             f"Botão selecionado:\n*{button.label}* → {button.url}\nPosição atual: {button.weight or 1}\n\n"
@@ -824,13 +968,170 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             except NotFoundError:
                 await query.answer("Categoria não encontrada.", show_alert=True)
                 return
-        _init_welcome_state(context, category)
+        _clear_welcome_state(context)
+        await _render_welcome_panel(update, query, context, category)
+        return
+    if action.startswith("welcome_back:"):
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
         async with get_session() as session:
-            repo_service = MediaRepositoryService(MediaRepositoryMapRepository(session), CategoryRepository(session))
-            repositories = await repo_service.list_by_category(category.id)
-        state = _get_welcome_state(context)
-        state["repositories_count"] = len(repositories)
-        await _prompt_welcome_mode(query, category.name)
+            service = CategoryService(CategoryRepository(session))
+            try:
+                category = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.answer("Categoria não encontrada.", show_alert=True)
+                return
+        await _render_category_detail(update, query, context, category)
+        return
+    if action.startswith("welcome_media_random:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            try:
+                category = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.answer("Categoria não encontrada.", show_alert=True)
+                return
+            payload = _prepare_welcome_update_payload(category)
+            payload["use_random_media"] = True
+            payload["media_id"] = None
+            if payload["mode"] not in {"media", "all"}:
+                has_text = bool(payload["text"])
+                has_buttons = bool(payload["buttons"])
+                payload["mode"] = "all" if (has_text or has_buttons) else "media"
+            await service.update_welcome(
+                category.id,
+                mode=payload["mode"],
+                text=payload["text"],
+                media_id=payload["media_id"],
+                buttons=payload["buttons"],
+                use_random_copy=payload["use_random_copy"],
+                use_random_media=payload["use_random_media"],
+            )
+            updated = await service.get_category_by_id(category.id)
+        await query.answer("Mídia aleatória ativada nas boas-vindas.", show_alert=False)
+        await _render_welcome_panel(update, query, context, updated)
+        return
+    if action.startswith("welcome_media_disable:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            try:
+                category = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.answer("Categoria não encontrada.", show_alert=True)
+                return
+            payload = _prepare_welcome_update_payload(category)
+            payload["use_random_media"] = False
+            payload["media_id"] = None
+            if payload["mode"] in {"all", "media"}:
+                if payload["text"]:
+                    payload["mode"] = "text"
+                elif payload["buttons"]:
+                    payload["mode"] = "buttons"
+                else:
+                    payload["mode"] = "none"
+            await service.update_welcome(
+                category.id,
+                mode=payload["mode"],
+                text=payload["text"],
+                media_id=payload["media_id"],
+                buttons=payload["buttons"],
+                use_random_copy=payload["use_random_copy"],
+                use_random_media=payload["use_random_media"],
+            )
+            updated = await service.get_category_by_id(category.id)
+        await query.answer("Mídia desativada nas boas-vindas.", show_alert=False)
+        await _render_welcome_panel(update, query, context, updated)
+        return
+    if action.startswith("welcome_create_copy:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            try:
+                category = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.answer("Categoria não encontrada.", show_alert=True)
+                return
+        await _start_addcopy_flow(query, context, category, return_to="welcome")
+        return
+    if action.startswith("welcome_edit_copy:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            try:
+                category = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.answer("Categoria não encontrada.", show_alert=True)
+                return
+        await _start_edit_copy_flow(query, context, category, return_to="welcome")
+        return
+    if action.startswith("welcome_create_button:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            try:
+                category = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.answer("Categoria não encontrada.", show_alert=True)
+                return
+        await _start_add_button_flow(query, context, category, return_to="welcome")
+        return
+    if action.startswith("welcome_edit_button:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            try:
+                category = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.answer("Categoria não encontrada.", show_alert=True)
+                return
+        await _start_edit_button_flow(query, context, category, return_to="welcome")
         return
 
     if action.startswith("welcome_cat:"):
@@ -1283,12 +1584,19 @@ async def menu_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         async with get_session() as session:
             service = CategoryService(CategoryRepository(session))
             await service.add_copy(category_id, text=copy_text, weight=weight)
-        await chat.send_message(
-            f"Copy registrada para a categoria `{category_slug}` com peso {weight}.",
-            parse_mode="Markdown",
-            reply_markup=_build_main_menu(),
-        )
+        return_to = pending.get("return_to")
+        ack_message = f"Copy registrada para a categoria `{category_slug}` com peso {weight}."
+        if return_to == "welcome":
+            await chat.send_message(ack_message, parse_mode="Markdown")
+            await _refresh_welcome_panel(context, category_id, chat=chat)
+        else:
+            await chat.send_message(
+                ack_message,
+                parse_mode="Markdown",
+                reply_markup=_build_main_menu(),
+            )
         context.user_data.pop(STATE_KEY, None)
+        return
     elif action == "editcopy":
         text_raw = message.text.strip()
         if not text_raw:
@@ -1312,12 +1620,20 @@ async def menu_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         async with get_session() as session:
             service = CategoryService(CategoryRepository(session))
             await service.update_copy(pending["copy_id"], text=copy_text, weight=weight)
-        await chat.send_message(
-            f"Copy atualizada para a categoria `{pending.get('category_slug')}`.",
-            parse_mode="Markdown",
-            reply_markup=_build_main_menu(),
-        )
+        category_id = pending.get("category_id")
+        return_to = pending.get("return_to")
+        ack_message = f"Copy atualizada para a categoria `{pending.get('category_slug')}`."
+        if return_to == "welcome" and category_id:
+            await chat.send_message(ack_message, parse_mode="Markdown")
+            await _refresh_welcome_panel(context, category_id, chat=chat)
+        else:
+            await chat.send_message(
+                ack_message,
+                parse_mode="Markdown",
+                reply_markup=_build_main_menu(),
+            )
         context.user_data.pop(STATE_KEY, None)
+        return
     elif action == "editbutton_label":
         text_raw = message.text.strip()
         if text_raw.lower() == "/skip":
@@ -1363,12 +1679,20 @@ async def menu_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 url=pending.get("new_url", pending.get("current_url")),
                 weight=weight,
             )
-        await chat.send_message(
-            f"Botão atualizado na categoria `{pending.get('category_slug')}`.",
-            parse_mode="Markdown",
-            reply_markup=_build_main_menu(),
-        )
+        category_id = pending.get("category_id")
+        return_to = pending.get("return_to")
+        ack_message = f"Botão atualizado na categoria `{pending.get('category_slug')}`."
+        if return_to == "welcome" and category_id:
+            await chat.send_message(ack_message, parse_mode="Markdown")
+            await _refresh_welcome_panel(context, category_id, chat=chat)
+        else:
+            await chat.send_message(
+                ack_message,
+                parse_mode="Markdown",
+                reply_markup=_build_main_menu(),
+            )
         context.user_data.pop(STATE_KEY, None)
+        return
     elif action == "setbotao_label":
         if not _is_admin(update):
             await chat.send_message("Apenas administradores podem adicionar botões.")
@@ -1412,13 +1736,22 @@ async def menu_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             service = CategoryService(CategoryRepository(session))
             await service.add_button(category_id, label=label, url=url, weight=weight)
         position_note = " (posição automática)" if auto_assigned else ""
-        await chat.send_message(
+        return_to = pending.get("return_to")
+        ack_message = (
             f"Botão registrado para a categoria `{category_slug}`.\n"
-            f"Label: {label}\nURL: {url}\nPosição: {weight}{position_note}",
-            parse_mode="Markdown",
-            reply_markup=_build_main_menu(),
+            f"Label: {label}\nURL: {url}\nPosição: {weight}{position_note}"
         )
+        if return_to == "welcome":
+            await chat.send_message(ack_message, parse_mode="Markdown")
+            await _refresh_welcome_panel(context, category_id, chat=chat)
+        else:
+            await chat.send_message(
+                ack_message,
+                parse_mode="Markdown",
+                reply_markup=_build_main_menu(),
+            )
         context.user_data.pop(STATE_KEY, None)
+        return
 
 
 
