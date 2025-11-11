@@ -1,23 +1,3 @@
-async def my_chat_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    chat_member_update = update.my_chat_member
-    chat = update.effective_chat
-    if not chat_member_update or not chat:
-        return
-
-    if chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
-        return
-
-    new_status = chat_member_update.new_chat_member.status
-    if new_status not in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER}:
-        return
-
-    old_status = chat_member_update.old_chat_member.status if chat_member_update.old_chat_member else None
-    if old_status in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER}:
-        return
-
-    async with get_session() as session:
-        group_service = GroupService(GroupRepository(session))
-        await group_service.upsert_group(chat_id=chat.id, title=chat.title, category_id=None)
 from __future__ import annotations
 
 import re
@@ -287,6 +267,28 @@ async def cmd_setrepositorio(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"Nome: {category.name}\nChat ID: `{mapping.chat_id}`",
         parse_mode="Markdown",
     )
+
+
+async def my_chat_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_member_update = update.my_chat_member
+    chat = update.effective_chat
+    if not chat_member_update or not chat:
+        return
+
+    if chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        return
+
+    new_status = chat_member_update.new_chat_member.status
+    if new_status not in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER}:
+        return
+
+    old_status = chat_member_update.old_chat_member.status if chat_member_update.old_chat_member else None
+    if old_status in {ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER}:
+        return
+
+    async with get_session() as session:
+        group_service = GroupService(GroupRepository(session))
+        await group_service.upsert_group(chat_id=chat.id, title=chat.title, category_id=None)
 
 
 def register_admin_handlers(application: Application) -> None:
