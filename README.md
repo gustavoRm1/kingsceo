@@ -55,7 +55,7 @@ Todos os comandos administrativos devem ser executados em um chat privado com o 
   Executado dentro do grupo que servira como repositório de mídias. O bot e o usuario que aciona o comando precisam ser administradores. Todas as midias (foto, video, documento, animacao) enviadas por admins nesse grupo passam a ser cadastradas automaticamente na categoria indicada, sem necessidade de usar `/addmidia`.
 
 - `/setboasvindas <slug> mode=<all|text|media|buttons|none>`  
-  Configura a mensagem de boas-vindas de grupos/canais ligados a categoria. Responda a mensagem contendo o conteudo desejado (texto, midia e/ou botoes). Modos:
+  Configura a mensagem de boas-vindas de grupos/canais ligados a categoria. Pelo menu interativo (`/start` → *Configurar boas-vindas*) você pode escolher modo, texto (copy), mídia e botões de forma guiada, além de optar entre uso fixo ou aleatório. Modos básicos:
   - `all`: envia texto, midia e botoes quando disponiveis.
   - `text`: apenas texto.
   - `media`: apenas midia.
