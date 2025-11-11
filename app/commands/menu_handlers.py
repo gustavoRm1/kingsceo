@@ -489,6 +489,31 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     if action == "setbotao":
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            categories = await service.list_categories()
+        if not categories:
+            await query.edit_message_text(
+                "Nenhuma categoria encontrada. Crie uma categoria primeiro.",
+                reply_markup=_build_main_menu(),
+            )
+            return
+        rows = []
+        for idx in range(0, len(categories), 2):
+            row = categories[idx : idx + 2]
+            rows.append(
+                [
+                    InlineKeyboardButton(cat.name, callback_data=f"{MENU_PREFIX}setbotao:{cat.id}")
+                    for cat in row
+                ]
+            )
+        rows.append([InlineKeyboardButton("⬅️ Voltar", callback_data=f"{MENU_PREFIX}back")])
+        await query.edit_message_text(
+            "Selecione a categoria para adicionar um botão:",
+            reply_markup=InlineKeyboardMarkup(rows),
+        )
+        return
+
     if action == "setboasvindas":
         async with get_session() as session:
             service = CategoryService(CategoryRepository(session))
