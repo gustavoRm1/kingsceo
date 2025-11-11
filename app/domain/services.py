@@ -95,7 +95,8 @@ class CategoryService:
         return models.ButtonDTO.model_validate(button)
 
     async def set_spoiler(self, category_id: int, *, enabled: bool) -> models.CategoryDTO:
-        category = await self.repo.set_spoiler(category_id, enabled=enabled)
+        await self.repo.set_spoiler(category_id, enabled=enabled)
+        category = await self.repo.get_by_id(category_id)
         return models.CategoryDTO.model_validate(category)
 
     async def update_welcome(
