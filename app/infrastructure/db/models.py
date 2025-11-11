@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, ForeignKey, Integer, JSON, LargeBinary, Text, event
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, JSON, LargeBinary, Text, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -21,6 +21,8 @@ class Category(Base):
     use_random_copy: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     use_random_media: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     use_spoiler_media: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    dispatch_interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    next_dispatch_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
     groups: Mapped[list["Group"]] = relationship("Group", back_populates="category")

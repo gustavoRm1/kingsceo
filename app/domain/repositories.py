@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime, timedelta
 
 import sqlalchemy as sa
 from sqlalchemy import select, update
@@ -210,6 +211,50 @@ class CategoryRepository:
         if not category:
             raise NotFoundError(f"Category id {category_id} not found.")
         return category
+
+    async def update_schedule(
+        self,
+        category_id: int,
+        *,
+        interval_minutes: int | None,
+        now: datetime,
+    ) -> Category:
+        category = await self.session.get(Category, category_id)
+        if not category:
+            raise NotFoundError(f"Category id {category_id} not found.")
+        if interval_minutes is None or interval_minutes <= 0:
+            category.dispatch_interval_minutes = None
+            category.next_dispatch_at = None
+        else:
+            category.dispatch_interval_minutes = interval_minutes
+            category.next_dispatch_at = now + timedelta(minutes=interval_minutes)
+        await self.session.flush()
+        return category
+
+    async def record_dispatch(self, category_id: int, *, now: datetime) -> Category:
+        category = await self.session.get(Category, category_id)
+        if not category:
+            raise NotFoundError(f"Category id {category_id} not found.")
+        interval = category.dispatch_interval_minutes or 0
+        if interval > 0:
+            category.next_dispatch_at = now + timedelta(minutes=interval)
+        else:
+            category.next_dispatch_at = None
+        await self.session.flush()
+        return category
+
+    async def list_due_for_dispatch(self, *, now: datetime) -> Sequence[Category]:
+        stmt = (
+            select(Category)
+            .where(
+                Category.dispatch_interval_minutes.is_not(None),
+                Category.dispatch_interval_minutes > 0,
+                Category.next_dispatch_at.is_not(None),
+                Category.next_dispatch_at <= now,
+            )
+        )
+        result = await self.session.scalars(stmt)
+        return result.all()
 
 
 class GroupRepository:

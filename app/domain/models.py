@@ -48,6 +48,8 @@ class CategoryDTO(BaseDTO):
     use_random_copy: bool = True
     use_random_media: bool = True
     use_spoiler_media: bool = False
+    dispatch_interval_minutes: int | None = None
+    next_dispatch_at: datetime | None = None
     created_at: datetime
     media_items: Sequence[MediaDTO] | None = None
     copies: Sequence[CopyDTO] | None = None

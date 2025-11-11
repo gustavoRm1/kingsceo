@@ -20,6 +20,7 @@ from app.core.notifications import AdminNotifier
 from app.domain.repositories import BotRepository
 from app.domain.services import BotService
 from app.infrastructure.db.base import get_session
+from app.scheduling.category_scheduler import CategoryScheduler
 
 logger = get_logger(__name__)
 
@@ -60,6 +61,7 @@ async def run_bot(config: BotConfig) -> None:
     monitor = HeartbeatMonitor(_heartbeat_callable)
     notifier = AdminNotifier(application.bot, get_settings().admin_ids)
     supervisor = BotSupervisor(notifier=notifier)
+    scheduler = CategoryScheduler(application)
     stop_event = asyncio.Event()
 
     loop = asyncio.get_running_loop()
@@ -70,6 +72,7 @@ async def run_bot(config: BotConfig) -> None:
     try:
         await monitor.start(HeartbeatConfig(bot_name=config.name, interval=60))
         await supervisor.start()
+        await scheduler.start()
         logger.info("bot.start", name=config.name, role=config.role)
         await application.initialize()
         await application.start()
@@ -84,6 +87,7 @@ async def run_bot(config: BotConfig) -> None:
         await application.shutdown()
         await monitor.stop()
         await supervisor.stop()
+        await scheduler.stop()
         logger.info("bot.stop", name=config.name)
 
 

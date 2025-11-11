@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from datetime import datetime, timezone
 from typing import Final
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -14,6 +15,7 @@ from app.domain import models
 from app.domain.repositories import CategoryRepository, GroupRepository, MediaRepositoryMapRepository
 from app.domain.services import CategoryService, GroupService, MediaRepositoryService
 from app.infrastructure.db.base import get_session
+from app.scheduling.dispatcher import DispatchEngine
 
 MENU_PREFIX: Final = "menu:"
 STATE_KEY: Final = "menu_pending"
@@ -26,12 +28,12 @@ GROUP_CATEGORY_PAGE_SIZE: Final = 8
 def _build_main_menu() -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton("Adicione-me a um grupo", callback_data=f"{MENU_PREFIX}add_to_group")],
-        [InlineKeyboardButton("Criar categoria (/setcategoria)", callback_data=f"{MENU_PREFIX}setcategoria")],
-        [InlineKeyboardButton("Visão de categorias", callback_data=f"{MENU_PREFIX}viewcats")],
-        [InlineKeyboardButton("Gerenciar grupos", callback_data=f"{MENU_PREFIX}groups")],
-        [InlineKeyboardButton("Adicionar copy (/addcopy)", callback_data=f"{MENU_PREFIX}addcopy")],
-        [InlineKeyboardButton("Adicionar botão (/setbotao)", callback_data=f"{MENU_PREFIX}setbotao")],
-        [InlineKeyboardButton("Configurar repositório (/setrepositorio)", callback_data=f"{MENU_PREFIX}setrepos")],
+        [InlineKeyboardButton("Criar Categoria)", callback_data=f"{MENU_PREFIX}setcategoria")],
+        [InlineKeyboardButton("Categorias", callback_data=f"{MENU_PREFIX}viewcats")],
+        [InlineKeyboardButton("Gerenciar Grupos", callback_data=f"{MENU_PREFIX}groups")],
+        [InlineKeyboardButton("Adicionar Copy", callback_data=f"{MENU_PREFIX}addcopy")],
+        [InlineKeyboardButton("Adicionar Botão", callback_data=f"{MENU_PREFIX}setbotao")],
+        [InlineKeyboardButton("Configurar repositório", callback_data=f"{MENU_PREFIX}setrepos")],
     ]
     return InlineKeyboardMarkup(buttons)
 
@@ -291,6 +293,7 @@ async def _render_category_detail(update: Update, query, context: ContextTypes.D
         f"- Copies: {copy_count} ({copy_mode_label}){copies_preview}\n"
         f"- Botões: {button_count}{buttons_preview}\n"
         f"- Repositórios:{repo_preview}\n"
+        f"- Agendamento: {_format_schedule_summary(category)}\n"
     )
     rows = [
         [InlineKeyboardButton("🎲 Copy aleatória", callback_data=f"{MENU_PREFIX}randcopy:{category.id}")],
@@ -299,6 +302,12 @@ async def _render_category_detail(update: Update, query, context: ContextTypes.D
     if _is_admin(update):
         spoiler_label = "🎭 Spoiler nas mídias: ON" if category.use_spoiler_media else "🎭 Spoiler nas mídias: OFF"
         rows.append([InlineKeyboardButton(spoiler_label, callback_data=f"{MENU_PREFIX}cat_spoiler:{category.id}")])
+        rows.append(
+            [
+                InlineKeyboardButton("⏱️ Agendamento", callback_data=f"{MENU_PREFIX}cat_schedule:{category.id}"),
+                InlineKeyboardButton("🚀 Enviar agora", callback_data=f"{MENU_PREFIX}cat_dispatch_now:{category.id}"),
+            ]
+        )
         rows.append(
             [
                 InlineKeyboardButton("🆕 Criar copy", callback_data=f"{MENU_PREFIX}cat_create_copy:{category.id}"),
@@ -320,6 +329,99 @@ async def _render_category_detail(update: Update, query, context: ContextTypes.D
         detail_message,
         reply_markup=keyboard,
         parse_mode="Markdown",
+    )
+
+
+def _format_schedule_summary(category: models.CategoryDTO) -> str:
+    interval = category.dispatch_interval_minutes or 0
+    if interval <= 0:
+        return "Sem agendamento configurado."
+    parts = [f"A cada {interval} minutos."]
+    next_run = category.next_dispatch_at
+    if next_run:
+        if next_run.tzinfo is None:
+            next_display = next_run.replace(tzinfo=timezone.utc)
+        else:
+            next_display = next_run.astimezone(timezone.utc)
+        parts.append(f"Próximo envio: {next_display.strftime('%Y-%m-%d %H:%M UTC')}.")
+    else:
+        parts.append("Próximo envio: em cálculo.")
+    return " ".join(parts)
+
+
+def _build_schedule_panel(category: models.CategoryDTO) -> tuple[str, InlineKeyboardMarkup]:
+    summary = _format_schedule_summary(category)
+    text = (
+        f"Agendamento da categoria {category.name}\n\n"
+        f"{summary}\n\n"
+        "Escolha um intervalo para os disparos automáticos:"
+    )
+    options = [
+        (15, "15 minutos"),
+        (30, "30 minutos"),
+        (60, "1 hora"),
+        (180, "3 horas"),
+        (360, "6 horas"),
+        (720, "12 horas"),
+        (1440, "1 dia"),
+    ]
+    rows: list[list[InlineKeyboardButton]] = []
+    for idx in range(0, len(options), 2):
+        chunk = options[idx : idx + 2]
+        row = [
+            InlineKeyboardButton(
+                label,
+                callback_data=f"{MENU_PREFIX}cat_schedule_set:{category.id}:{minutes}",
+            )
+            for minutes, label in chunk
+        ]
+        rows.append(row)
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "Inserir minutos",
+                callback_data=f"{MENU_PREFIX}cat_schedule_custom:{category.id}",
+            )
+        ]
+    )
+    if category.dispatch_interval_minutes:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    "Desativar agendamento",
+                    callback_data=f"{MENU_PREFIX}cat_schedule_disable:{category.id}",
+                )
+            ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "⬅️ Voltar",
+                callback_data=f"{MENU_PREFIX}cat_schedule_back:{category.id}",
+            )
+        ]
+    )
+    return text, InlineKeyboardMarkup(rows)
+
+
+async def _render_schedule_panel(update: Update, query, context: ContextTypes.DEFAULT_TYPE, category_id: int) -> None:
+    async with get_session() as session:
+        service = CategoryService(CategoryRepository(session))
+        category = await service.get_category_by_id(category_id)
+    text, keyboard = _build_schedule_panel(category)
+    await query.edit_message_text(text, reply_markup=keyboard)
+
+
+async def _render_schedule_panel_by_ids(context: ContextTypes.DEFAULT_TYPE, *, chat_id: int, message_id: int, category_id: int) -> None:
+    async with get_session() as session:
+        service = CategoryService(CategoryRepository(session))
+        category = await service.get_category_by_id(category_id)
+    text, keyboard = _build_schedule_panel(category)
+    await context.bot.edit_message_text(
+        text=text,
+        chat_id=chat_id,
+        message_id=message_id,
+        reply_markup=keyboard,
     )
 
 
@@ -939,6 +1041,106 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 )
                 return
         await _render_category_detail(update, query, context, category)
+        return
+    if action.startswith("cat_schedule:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        await _render_schedule_panel(update, query, context, int(id_part))
+        return
+    if action.startswith("cat_schedule_set:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        parts = action.split(":")
+        if len(parts) != 3 or not parts[1].isdigit() or not parts[2].isdigit():
+            await query.answer("Seleção inválida.", show_alert=True)
+            return
+        category_id = int(parts[1])
+        minutes = int(parts[2])
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            await service.update_schedule(category_id, interval_minutes=minutes)
+            await session.commit()
+        await query.answer("Agendamento atualizado.", show_alert=False)
+        await _render_schedule_panel(update, query, context, category_id)
+        return
+    if action.startswith("cat_schedule_disable:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            await service.update_schedule(category_id, interval_minutes=None)
+            await session.commit()
+        await query.answer("Agendamento desativado.", show_alert=False)
+        await _render_schedule_panel(update, query, context, category_id)
+        return
+    if action.startswith("cat_schedule_back:"):
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            category = await service.get_category_by_id(category_id)
+        await _render_category_detail(update, query, context, category)
+        return
+    if action.startswith("cat_schedule_custom:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
+        context.user_data[STATE_KEY] = {
+            "action": "schedule_custom",
+            "category_id": category_id,
+            "panel_chat_id": query.message.chat_id if query.message else None,
+            "panel_message_id": query.message.message_id if query.message else None,
+        }
+        await query.edit_message_text(
+            "Informe o intervalo em minutos (número inteiro maior que zero).",
+            reply_markup=None,
+        )
+        await query.answer("Envie o intervalo em minutos.", show_alert=False)
+        return
+    if action.startswith("cat_dispatch_now:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            try:
+                category = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.answer("Categoria não encontrada.", show_alert=True)
+                return
+        engine = DispatchEngine(context.application)
+        await engine.dispatch_category(category.slug)
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            updated_category = await service.record_dispatch(category_id)
+            await session.commit()
+        await query.answer("Disparo executado.", show_alert=False)
+        await _render_category_detail(update, query, context, updated_category)
         return
     if action.startswith("cat_spoiler:"):
         if not _is_admin(update):
@@ -2186,6 +2388,36 @@ async def menu_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 parse_mode="Markdown",
                 reply_markup=_build_main_menu(),
             )
+        context.user_data.pop(STATE_KEY, None)
+        return
+    elif action == "schedule_custom":
+        text_raw = message.text.strip()
+        if not text_raw.isdigit():
+            await chat.send_message("Intervalo inválido. Envie apenas números inteiros (em minutos).")
+            return
+        minutes = int(text_raw)
+        if minutes <= 0:
+            await chat.send_message("Use um valor em minutos maior que zero.")
+            return
+        category_id = pending.get("category_id")
+        if not category_id:
+            await chat.send_message("Categoria não identificada. Abra novamente o painel de agendamento.")
+            context.user_data.pop(STATE_KEY, None)
+            return
+        async with get_session() as session:
+            service = CategoryService(CategoryRepository(session))
+            await service.update_schedule(category_id, interval_minutes=minutes)
+            await session.commit()
+        panel_chat = pending.get("panel_chat_id")
+        panel_message = pending.get("panel_message_id")
+        if panel_chat is not None and panel_message is not None:
+            await _render_schedule_panel_by_ids(
+                context,
+                chat_id=panel_chat,
+                message_id=panel_message,
+                category_id=category_id,
+            )
+        await chat.send_message(f"Agendamento atualizado para cada {minutes} minutos.")
         context.user_data.pop(STATE_KEY, None)
         return
 
