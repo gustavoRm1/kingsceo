@@ -670,16 +670,16 @@ async def _render_group_detail(update: Update, query, context: ContextTypes.DEFA
 
     title = group.title or "—"
     link_text = chat_link or "Indisponível"
-    category_line = f"{category_name}"
+    category_line = category_name
     if category_slug:
-        category_line += f" (`{category_slug}`)"
+        category_line += f" (slug: {category_slug})"
 
     detail_text = (
-        f"*Gestão de Grupo*\n\n"
-        f"*Nome:* {title}\n"
-        f"*Chat ID:* `{group.telegram_chat_id}`\n"
-        f"*Categoria atual:* {category_line}\n"
-        f"*Link:* {link_text}"
+        "Gestão de Grupo\n\n"
+        f"Nome: {title}\n"
+        f"Chat ID: {group.telegram_chat_id}\n"
+        f"Categoria atual: {category_line}\n"
+        f"Link: {link_text}"
     )
 
     rows: list[list[InlineKeyboardButton]] = [
@@ -704,7 +704,6 @@ async def _render_group_detail(update: Update, query, context: ContextTypes.DEFA
     try:
         await query.edit_message_text(
             detail_text,
-            parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(rows),
         )
     except BadRequest as exc:
