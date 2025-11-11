@@ -6,8 +6,8 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "20251111_0006_group_category_nullable"
-down_revision: str = "20251111_0005_add_spoiler_flag"
+revision: str = "20251111_0006"
+down_revision: str = "20251111_0005"
 branch_labels: Sequence[str] | None = None
 depends_on: Sequence[str] | None = None
 
