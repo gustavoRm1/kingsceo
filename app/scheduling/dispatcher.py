@@ -69,6 +69,7 @@ class DispatchEngine:
 
     async def _send_payload(self, chat_id: int, payload: Payload) -> None:
         # Garantimos admin antes de qualquer envio explícito
+        # sanity check: only dispatch to chats where the bot is admin
         if not await self._ensure_admin(chat_id):
             logger.warning("dispatch.skip_not_admin", chat_id=chat_id)
             return
