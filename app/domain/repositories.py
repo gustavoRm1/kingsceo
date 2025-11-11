@@ -184,6 +184,19 @@ class CategoryRepository:
             raise NotFoundError(f"Category id {category_id} not found.")
         return category
 
+    async def set_spoiler(self, category_id: int, *, enabled: bool) -> Category:
+        stmt = (
+            update(Category)
+            .where(Category.id == category_id)
+            .values(use_spoiler_media=enabled)
+            .returning(Category)
+        )
+        result = await self.session.execute(stmt)
+        category = result.scalar_one_or_none()
+        if not category:
+            raise NotFoundError(f"Category id {category_id} not found.")
+        return category
+
 
 class GroupRepository:
     def __init__(self, session):
@@ -206,6 +219,15 @@ class GroupRepository:
             update(Group)
             .where(Group.id == group_id)
             .values(assigned_bot_id=bot_id)
+        )
+        await self.session.execute(stmt)
+        await self.session.flush()
+
+    async def set_service_cleanup(self, chat_id: int, value: bool) -> None:
+        stmt = (
+            update(Group)
+            .where(Group.telegram_chat_id == chat_id)
+            .values(clean_service_messages=value)
         )
         await self.session.execute(stmt)
         await self.session.flush()
@@ -277,6 +299,9 @@ class MediaRepositoryMapRepository:
         await self.session.flush()
         return mapping
 
+    async def get_by_id(self, mapping_id: int) -> MediaRepositoryMap | None:
+        return await self.session.get(MediaRepositoryMap, mapping_id)
+
     async def get_by_chat(self, chat_id: int) -> MediaRepositoryMap | None:
         stmt = select(MediaRepositoryMap).where(
             MediaRepositoryMap.chat_id == chat_id, MediaRepositoryMap.active.is_(True)
@@ -288,6 +313,14 @@ class MediaRepositoryMapRepository:
             update(MediaRepositoryMap)
             .where(MediaRepositoryMap.chat_id == chat_id)
             .values(active=False)
+        )
+        await self.session.execute(stmt)
+
+    async def set_service_cleanup(self, mapping_id: int, value: bool) -> None:
+        stmt = (
+            update(MediaRepositoryMap)
+            .where(MediaRepositoryMap.id == mapping_id)
+            .values(clean_service_messages=value)
         )
         await self.session.execute(stmt)
 

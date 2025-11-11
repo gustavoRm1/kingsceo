@@ -83,6 +83,7 @@ class DispatchEngine:
                         chat_id=chat_id,
                         photo=payload.media.file_id,
                         caption=caption,
+                        has_spoiler=payload.media_spoiler,
                         reply_markup=markup,
                     )
                 elif payload.media.media_type == "video":
@@ -90,6 +91,7 @@ class DispatchEngine:
                         chat_id=chat_id,
                         video=payload.media.file_id,
                         caption=caption,
+                        has_spoiler=payload.media_spoiler,
                         reply_markup=markup,
                     )
                 elif payload.media.media_type == "document":
@@ -104,6 +106,7 @@ class DispatchEngine:
                         chat_id=chat_id,
                         animation=payload.media.file_id,
                         caption=caption,
+                        has_spoiler=payload.media_spoiler,
                         reply_markup=markup,
                     )
                 else:

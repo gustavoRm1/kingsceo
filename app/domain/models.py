@@ -78,6 +78,7 @@ class Payload(BaseModel):
     media: MediaDTO | None = None
     message: CopyDTO | None = None
     buttons: list[ButtonDTO] = Field(default_factory=list)
+    media_spoiler: bool = False
 
 
 class MediaRepositoryDTO(BaseDTO):
@@ -85,6 +86,7 @@ class MediaRepositoryDTO(BaseDTO):
     category_id: int
     chat_id: int
     active: bool
+    clean_service_messages: bool
     created_at: datetime
 
 

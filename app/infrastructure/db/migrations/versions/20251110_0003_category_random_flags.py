@@ -27,9 +27,14 @@ def upgrade() -> None:
         "category",
         sa.Column("use_random_media", sa.Boolean(), server_default=sa.text("true"), nullable=False),
     )
+    op.add_column(
+        "category",
+        sa.Column("use_spoiler_media", sa.Boolean(), server_default=sa.text("false"), nullable=False),
+    )
 
 
 def downgrade() -> None:
+    op.drop_column("category", "use_spoiler_media")
     op.drop_column("category", "use_random_media")
     op.drop_column("category", "use_random_copy")
 

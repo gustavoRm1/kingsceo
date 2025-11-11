@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+
 from telegram import Update
 from telegram.constants import ChatMemberStatus, ChatType
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
@@ -88,6 +90,19 @@ async def repository_media_handler(update: Update, context: ContextTypes.DEFAULT
         )
 
 
+async def service_cleanup_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat = update.effective_chat
+    message = update.effective_message
+    if not chat or not message:
+        return
+    async with get_session() as session:
+        repo_service = MediaRepositoryService(MediaRepositoryMapRepository(session), CategoryRepository(session))
+        mapping = await repo_service.get_mapping(chat.id)
+    if mapping and mapping.clean_service_messages:
+        with contextlib.suppress(Exception):
+            await context.bot.delete_message(chat.id, message.message_id)
+
+
 def register_repository_handlers(application: Application) -> None:
     application.add_handler(
         MessageHandler(
@@ -95,6 +110,9 @@ def register_repository_handlers(application: Application) -> None:
             & (filters.PHOTO | filters.VIDEO | filters.Document.ALL | filters.ANIMATION),
             repository_media_handler,
         )
+    )
+    application.add_handler(
+        MessageHandler(filters.StatusUpdate.ALL, service_cleanup_handler)
     )
 
 

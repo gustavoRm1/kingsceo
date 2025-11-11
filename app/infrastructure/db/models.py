@@ -20,6 +20,7 @@ class Category(Base):
     welcome_buttons: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     use_random_copy: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     use_random_media: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    use_spoiler_media: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
     groups: Mapped[list["Group"]] = relationship("Group", back_populates="category")
@@ -41,6 +42,7 @@ class Group(Base):
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
     category_id: Mapped[int] = mapped_column(ForeignKey("category.id", ondelete="CASCADE"))
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    clean_service_messages: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     assigned_bot_id: Mapped[int | None] = mapped_column(
         ForeignKey("bot.id", ondelete="SET NULL"),
         nullable=True,
@@ -121,6 +123,7 @@ class MediaRepositoryMap(Base):
     category_id: Mapped[int] = mapped_column(ForeignKey("category.id", ondelete="CASCADE"), nullable=False)
     chat_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    clean_service_messages: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
     category: Mapped["Category"] = relationship("Category", back_populates="repositories")

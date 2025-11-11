@@ -52,10 +52,10 @@ Todos os comandos administrativos devem ser executados em um chat privado com o 
   Registra um botao inline com texto e link (URL obrigatoriamente `http://` ou `https://`). A posicao (padrao: proxima disponivel) define a ordem em que os botoes aparecerao no envio (1 fica no topo).
 
 - `/setrepositorio <slug>`  
-  Executado dentro do grupo que servira como repositório de mídias. O bot e o usuario que aciona o comando precisam ser administradores. Todas as midias (foto, video, documento, animacao) enviadas por admins nesse grupo passam a ser cadastradas automaticamente na categoria indicada, sem necessidade de usar `/addmidia`.
+  Executado dentro do grupo que servira como repositório de mídias. O bot e o usuario que aciona o comando precisam ser administradores. Todas as midias (foto, video, documento, animacao) enviadas por admins nesse grupo passam a ser cadastradas automaticamente na categoria indicada, sem necessidade de usar `/addmidia`. Em *Visão de categorias* é possível ativar/desativar a limpeza de mensagens de serviço desses repositórios.
 
 - `/setboasvindas <slug> mode=<all|text|media|buttons|none>`  
-  Configura a mensagem de boas-vindas de grupos/canais ligados a categoria. Pelo menu interativo (`/start` → *Configurar boas-vindas*) você pode escolher modo, texto (copy), mídia e botões de forma guiada, além de optar entre uso fixo ou aleatório. Modos básicos:
+  Configura a mensagem de boas-vindas de grupos/canais ligados a categoria. Pelo menu interativo (`/start` → *Configurar boas-vindas*) você pode escolher modo, texto (copy), mídia (com opção de spoiler) e botões de forma guiada, além de optar entre uso fixo ou aleatório. Modos básicos:
   - `all`: envia texto, midia e botoes quando disponiveis.
   - `text`: apenas texto.
   - `media`: apenas midia.

@@ -27,7 +27,6 @@ def _build_main_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("Adicionar copy (/addcopy)", callback_data=f"{MENU_PREFIX}addcopy")],
         [InlineKeyboardButton("Adicionar botão (/setbotao)", callback_data=f"{MENU_PREFIX}setbotao")],
         [InlineKeyboardButton("Configurar repositório (/setrepositorio)", callback_data=f"{MENU_PREFIX}setrepos")],
-        [InlineKeyboardButton("Configurar boas-vindas (/setboasvindas)", callback_data=f"{MENU_PREFIX}setboasvindas")],
     ]
     return InlineKeyboardMarkup(buttons)
 
@@ -239,6 +238,86 @@ async def _show_welcome_summary(target, context, category, state, *, edit: bool 
         )
 
 
+async def _render_category_detail(update: Update, query, context: ContextTypes.DEFAULT_TYPE, category: models.CategoryDTO) -> None:
+    async with get_session() as session:
+        repo_service = MediaRepositoryService(MediaRepositoryMapRepository(session), CategoryRepository(session))
+        repositories = await repo_service.list_by_category(category.id)
+
+    copy_count = len(category.copies or [])
+    button_count = len(category.buttons or [])
+    media_count = len(category.media_items or [])
+    copy_mode_label = "🔁 aleatória" if category.use_random_copy else "➡️ sequencial"
+    media_mode_label = "🔁 aleatória" if category.use_random_media else "➡️ sequencial"
+    copies_preview = ""
+    for entry in (category.copies or [])[:3]:
+        snippet = entry.text[:120].replace("`", "´")
+        copies_preview += f"\n  • {snippet}"
+        if len(entry.text) > 120:
+            copies_preview += "..."
+    if not copies_preview:
+        copies_preview = "\n  • Nenhuma copy cadastrada"
+    buttons_preview = ""
+    for entry in (category.buttons or [])[:3]:
+        buttons_preview += f"\n  • {entry.label} → {entry.url}"
+    if not buttons_preview:
+        buttons_preview = "\n  • Nenhum botão cadastrado"
+    repo_preview = ""
+    repo_button_rows: list[list[InlineKeyboardButton]] = []
+    if repositories:
+        for repo in repositories[:5]:
+            status_label = "ON" if repo.clean_service_messages else "OFF"
+            repo_preview += f"\n  • Chat ID: `{repo.chat_id}` (serviços: {status_label})"
+            if _is_admin(update):
+                repo_button_rows.append(
+                    [
+                        InlineKeyboardButton(
+                            f"🧹 Serviços {status_label}",
+                            callback_data=f"{MENU_PREFIX}cat_repo_toggle:{repo.id}",
+                        )
+                    ]
+                )
+        if len(repositories) > 5:
+            repo_preview += f"\n  • ... +{len(repositories)-5} outros"
+    else:
+        repo_preview = "\n  • Nenhum repositório ativo"
+    detail_message = (
+        f"*{category.name}* (`{category.slug}`)\n"
+        f"- Mídias cadastradas: {media_count} ({media_mode_label})\n"
+        f"- Copies: {copy_count} ({copy_mode_label}){copies_preview}\n"
+        f"- Botões: {button_count}{buttons_preview}\n"
+        f"- Repositórios:{repo_preview}\n"
+    )
+    rows = [
+        [InlineKeyboardButton("🎲 Copy aleatória", callback_data=f"{MENU_PREFIX}randcopy:{category.id}")],
+        [InlineKeyboardButton("🎲 Mídia aleatória", callback_data=f"{MENU_PREFIX}randmedia:{category.id}")],
+    ]
+    if _is_admin(update):
+        spoiler_label = "🎭 Spoiler nas mídias: ON" if category.use_spoiler_media else "🎭 Spoiler nas mídias: OFF"
+        rows.append([InlineKeyboardButton(spoiler_label, callback_data=f"{MENU_PREFIX}cat_spoiler:{category.id}")])
+        rows.append(
+            [
+                InlineKeyboardButton("🆕 Criar copy", callback_data=f"{MENU_PREFIX}cat_create_copy:{category.id}"),
+                InlineKeyboardButton("✏️ Editar copy", callback_data=f"{MENU_PREFIX}cat_edit_copy:{category.id}"),
+            ]
+        )
+        rows.append(
+            [
+                InlineKeyboardButton("🆕 Criar botão", callback_data=f"{MENU_PREFIX}cat_create_button:{category.id}"),
+                InlineKeyboardButton("✏️ Editar botões", callback_data=f"{MENU_PREFIX}cat_edit_button:{category.id}"),
+            ]
+        )
+        rows.append([InlineKeyboardButton("⚙️ Configurar boas-vindas", callback_data=f"{MENU_PREFIX}cat_welcome:{category.id}")])
+        rows.extend(repo_button_rows)
+    rows.append([InlineKeyboardButton("⬅️ Voltar às categorias", callback_data=f"{MENU_PREFIX}viewcats")])
+    rows.append([InlineKeyboardButton("🏠 Menu principal", callback_data=f"{MENU_PREFIX}back")])
+    keyboard = InlineKeyboardMarkup(rows)
+    await query.edit_message_text(
+        detail_message,
+        reply_markup=keyboard,
+        parse_mode="Markdown",
+    )
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     chat = update.effective_chat
@@ -310,7 +389,6 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         category_id = int(id_part)
         async with get_session() as session:
             category_service = CategoryService(CategoryRepository(session))
-            repo_service = MediaRepositoryService(MediaRepositoryMapRepository(session), CategoryRepository(session))
             try:
                 category = await category_service.get_category_by_id(category_id)
             except NotFoundError:
@@ -319,65 +397,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                     reply_markup=_build_main_menu(),
                 )
                 return
-            repositories = await repo_service.list_by_category(category_id)
-        copy_count = len(category.copies or [])
-        button_count = len(category.buttons or [])
-        media_count = len(category.media_items or [])
-        copy_mode_label = "🔁 aleatória" if category.use_random_copy else "➡️ sequencial"
-        media_mode_label = "🔁 aleatória" if category.use_random_media else "➡️ sequencial"
-        copies_preview = ""
-        for entry in (category.copies or [])[:3]:
-            snippet = entry.text[:120].replace("`", "´")
-            copies_preview += f"\n  • {snippet}"
-            if len(entry.text) > 120:
-                copies_preview += "..."
-        if not copies_preview:
-            copies_preview = "\n  • Nenhuma copy cadastrada"
-        buttons_preview = ""
-        for entry in (category.buttons or [])[:3]:
-            buttons_preview += f"\n  • {entry.label} → {entry.url}"
-        if not buttons_preview:
-            buttons_preview = "\n  • Nenhum botão cadastrado"
-        repo_preview = ""
-        if repositories:
-            for repo in repositories[:5]:
-                repo_preview += f"\n  • Chat ID: `{repo.chat_id}`"
-            if len(repositories) > 5:
-                repo_preview += f"\n  • ... +{len(repositories)-5} outros"
-        else:
-            repo_preview = "\n  • Nenhum repositório ativo"
-        detail_message = (
-            f"*{category.name}* (`{category.slug}`)\n"
-            f"- Mídias cadastradas: {media_count} ({media_mode_label})\n"
-            f"- Copies: {copy_count} ({copy_mode_label}){copies_preview}\n"
-            f"- Botões: {button_count}{buttons_preview}\n"
-            f"- Repositórios:{repo_preview}\n"
-        )
-        rows = [
-            [InlineKeyboardButton("🎲 Copy aleatória", callback_data=f"{MENU_PREFIX}randcopy:{category.id}")],
-            [InlineKeyboardButton("🎲 Mídia aleatória", callback_data=f"{MENU_PREFIX}randmedia:{category.id}")],
-        ]
-        if _is_admin(update):
-            rows.append(
-                [
-                    InlineKeyboardButton("🆕 Criar copy", callback_data=f"{MENU_PREFIX}cat_create_copy:{category.id}"),
-                    InlineKeyboardButton("✏️ Editar copy", callback_data=f"{MENU_PREFIX}cat_edit_copy:{category.id}"),
-                ]
-            )
-            rows.append(
-                [
-                    InlineKeyboardButton("🆕 Criar botão", callback_data=f"{MENU_PREFIX}cat_create_button:{category.id}"),
-                    InlineKeyboardButton("✏️ Editar botões", callback_data=f"{MENU_PREFIX}cat_edit_button:{category.id}"),
-                ]
-            )
-        rows.append([InlineKeyboardButton("⬅️ Voltar às categorias", callback_data=f"{MENU_PREFIX}viewcats")])
-        rows.append([InlineKeyboardButton("🏠 Menu principal", callback_data=f"{MENU_PREFIX}back")])
-        keyboard = InlineKeyboardMarkup(rows)
-        await query.edit_message_text(
-            detail_message,
-            reply_markup=keyboard,
-            parse_mode="Markdown",
-        )
+        await _render_category_detail(update, query, context, category)
         return
     if action.startswith("randcopy:"):
         _, _, id_part = action.partition(":")
@@ -734,30 +754,29 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         return
 
-    if action == "setboasvindas":
+    if action.startswith("cat_welcome:"):
+        if not _is_admin(update):
+            await query.answer("Acesso restrito a administradores.", show_alert=True)
+            return
+        _, _, id_part = action.partition(":")
+        if not id_part.isdigit():
+            await query.answer("Categoria inválida.", show_alert=True)
+            return
+        category_id = int(id_part)
         async with get_session() as session:
             service = CategoryService(CategoryRepository(session))
-            categories = await service.list_categories()
-        if not categories:
-            await query.edit_message_text(
-                "Nenhuma categoria encontrada. Crie uma categoria primeiro.",
-                reply_markup=_build_main_menu(),
-            )
-            return
-        rows = []
-        for idx in range(0, len(categories), 2):
-            row = categories[idx : idx + 2]
-            rows.append(
-                [
-                    InlineKeyboardButton(cat.name, callback_data=f"{MENU_PREFIX}welcome_cat:{cat.id}")
-                    for cat in row
-                ]
-            )
-        rows.append([InlineKeyboardButton("⬅️ Voltar", callback_data=f"{MENU_PREFIX}back")])
-        await query.edit_message_text(
-            "Selecione a categoria para configurar as boas-vindas:",
-            reply_markup=InlineKeyboardMarkup(rows),
-        )
+            try:
+                category = await service.get_category_by_id(category_id)
+            except NotFoundError:
+                await query.answer("Categoria não encontrada.", show_alert=True)
+                return
+        _init_welcome_state(context, category)
+        async with get_session() as session:
+            repo_service = MediaRepositoryService(MediaRepositoryMapRepository(session), CategoryRepository(session))
+            repositories = await repo_service.list_by_category(category.id)
+        state = _get_welcome_state(context)
+        state["repositories_count"] = len(repositories)
+        await _prompt_welcome_mode(query, category.name)
         return
 
     if action.startswith("welcome_cat:"):
@@ -1044,70 +1063,17 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 use_random_copy=use_random_copy,
                 use_random_media=use_random_media,
             )
+            category = await service.get_category_by_id(category.id)
         _clear_welcome_state(context)
         context.user_data.pop(STATE_KEY, None)
-        await query.edit_message_text(
-            "Boas-vindas atualizadas com sucesso!",
-            reply_markup=_build_main_menu(),
-        )
-        return
-        async with get_session() as session:
-            service = CategoryService(CategoryRepository(session))
-            categories = await service.list_categories()
-        if not categories:
-            await query.edit_message_text(
-                "Nenhuma categoria encontrada. Crie uma categoria primeiro.",
-                reply_markup=_build_main_menu(),
-            )
-            return
-        rows = []
-        for idx in range(0, len(categories), 2):
-            row = categories[idx : idx + 2]
-            rows.append(
-                [
-                    InlineKeyboardButton(cat.name, callback_data=f"{MENU_PREFIX}setbotao:{cat.id}")
-                    for cat in row
-                ]
-            )
-        rows.append([InlineKeyboardButton("⬅️ Voltar", callback_data=f"{MENU_PREFIX}back")])
-        await query.edit_message_text(
-            "Selecione a categoria para adicionar um botão:",
-            reply_markup=InlineKeyboardMarkup(rows),
-        )
+        await _render_category_detail(update, query, context, category)
         return
 
-    if action.startswith("setbotao:"):
-        _, _, id_part = action.partition(":")
-        if not id_part.isdigit():
-            await query.answer("Categoria inválida.", show_alert=True)
-            return
-        category_id = int(id_part)
-        async with get_session() as session:
-            service = CategoryService(CategoryRepository(session))
-            try:
-                category = await service.get_category_by_id(category_id)
-            except NotFoundError:
-                await query.edit_message_text(
-                    "Categoria não encontrada.",
-                    reply_markup=_build_main_menu(),
-                )
-                return
-        if not _is_admin(update):
-            await query.edit_message_text(
-                "Apenas administradores podem adicionar botões.",
-                reply_markup=_build_main_menu(),
-            )
-            return
-        context.user_data[STATE_KEY] = {
-            "action": "setbotao_label",
-            "category_id": category.id,
-            "category_slug": category.slug,
-            "category_name": category.name,
-            "button_count": len(category.buttons or []),
-        }
+    if action == "setrepos":
         await query.edit_message_text(
-            f"Categoria selecionada: {category.name}.\n"
-            "Envie o texto do botão (label) nesta conversa.",
+            "Para definir um repositório, execute `/setrepositorio <slug>` dentro do grupo desejado (o bot e quem aciona devem ser administradores).",
+            parse_mode="Markdown",
+            reply_markup=_build_main_menu(),
         )
         return
 

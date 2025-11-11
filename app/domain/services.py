@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Iterable
 
+from app.core.exceptions import NotFoundError
 from app.core.utils import weighted_choice
 from app.domain import models
 from app.domain.repositories import BotRepository, CategoryRepository, GroupRepository
@@ -63,6 +64,10 @@ class CategoryService:
         copy = await self.repo.update_copy(copy_id, text=text, weight=weight)
         return models.CopyDTO.model_validate(copy)
 
+    async def get_copy(self, copy_id: int) -> models.CopyDTO:
+        copy = await self.repo.get_copy(copy_id)
+        return models.CopyDTO.model_validate(copy)
+
     async def add_button(
         self,
         category_id: int,
@@ -88,6 +93,10 @@ class CategoryService:
     ) -> models.ButtonDTO:
         button = await self.repo.update_button(button_id, label=label, url=url, weight=weight)
         return models.ButtonDTO.model_validate(button)
+
+    async def set_spoiler(self, category_id: int, *, enabled: bool) -> models.CategoryDTO:
+        category = await self.repo.set_spoiler(category_id, enabled=enabled)
+        return models.CategoryDTO.model_validate(category)
 
     async def update_welcome(
         self,
@@ -150,7 +159,12 @@ class CategoryService:
             )
             buttons = [models.ButtonDTO.model_validate(btn) for btn in ordered_buttons]
 
-        return models.Payload(media=media_dto, message=copy_dto, buttons=buttons)
+        return models.Payload(
+            media=media_dto,
+            message=copy_dto,
+            buttons=buttons,
+            media_spoiler=category.use_spoiler_media,
+        )
 
 
 class GroupService:
@@ -228,3 +242,16 @@ class MediaRepositoryService:
     async def list_by_category(self, category_id: int) -> list[models.MediaRepositoryDTO]:
         mappings = await self.mapping_repo.list_by_category(category_id)
         return [models.MediaRepositoryDTO.model_validate(item) for item in mappings]
+
+    async def get_mapping_by_id(self, mapping_id: int) -> models.MediaRepositoryDTO | None:
+        mapping = await self.mapping_repo.get_by_id(mapping_id)
+        if not mapping:
+            return None
+        return models.MediaRepositoryDTO.model_validate(mapping)
+
+    async def set_cleanup(self, mapping_id: int, *, enabled: bool) -> models.MediaRepositoryDTO:
+        await self.mapping_repo.set_service_cleanup(mapping_id, enabled)
+        mapping = await self.mapping_repo.get_by_id(mapping_id)
+        if not mapping:
+            raise NotFoundError(f"Repository map id {mapping_id} not found.")
+        return models.MediaRepositoryDTO.model_validate(mapping)
