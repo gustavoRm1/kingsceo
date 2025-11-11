@@ -7,7 +7,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "20251111_0007_category_schedule"
-down_revision: str = "20251111_0006_group_category_nullable"
+down_revision: str = "20251111_0006"
 branch_labels: Sequence[str] | None = None
 depends_on: Sequence[str] | None = None
 
